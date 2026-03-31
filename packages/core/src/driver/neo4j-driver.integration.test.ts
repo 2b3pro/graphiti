@@ -24,10 +24,17 @@ describe('Neo4j integration', () => {
   let graphiti: Graphiti | null = null;
   let setupSucceeded = false;
   const groupId = `ts-port-${randomUUID()}`;
+  const allGroupIds = [groupId];
   const entityUuid = `entity-${randomUUID()}`;
   const episodeUuid = `episode-${randomUUID()}`;
   const edgeUuid = `edge-${randomUUID()}`;
   const mentionUuid = `mention-${randomUUID()}`;
+
+  function testGroupId(): string {
+    const id = `ts-port-${randomUUID()}`;
+    allGroupIds.push(id);
+    return id;
+  }
 
   beforeAll(async () => {
     if (!hasNeo4jEnv) {
@@ -52,12 +59,12 @@ describe('Neo4j integration', () => {
     try {
       await Promise.race([
         driver.healthCheck(),
-        createTimeout(1500, 'Neo4j health check timed out')
+        createTimeout(10000, 'Neo4j health check timed out')
       ]);
       graphiti = new Graphiti({ driver });
       await Promise.race([
         graphiti.buildIndicesAndConstraints(),
-        createTimeout(2000, 'Neo4j setup timed out')
+        createTimeout(10000, 'Neo4j setup timed out')
       ]);
       setupSucceeded = true;
     } catch {
@@ -72,14 +79,16 @@ describe('Neo4j integration', () => {
       return;
     }
 
-    await graphiti.driver.executeQuery(
-      `
-        MATCH (n)
-        WHERE n.group_id = $group_id
-        DETACH DELETE n
-      `,
-      { params: { group_id: groupId } }
-    );
+    for (const gid of allGroupIds) {
+      await graphiti.driver.executeQuery(
+        `
+          MATCH (n)
+          WHERE n.group_id = $group_id
+          DETACH DELETE n
+        `,
+        { params: { group_id: gid } }
+      );
+    }
 
     await graphiti.close();
   });
@@ -160,6 +169,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const ingestGraphiti = new Graphiti({
       driver: activeGraphiti.driver,
@@ -175,7 +185,7 @@ describe('Neo4j integration', () => {
     const ingestEpisode: EpisodicNode = {
       uuid: ingestEpisodeUuid,
       name: 'episode',
-      group_id: groupId,
+      group_id: tgid,
       labels: [],
       created_at: utcNow(),
       source: 'text',
@@ -211,7 +221,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           episode_uuid: ingestEpisodeUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -227,6 +237,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const temporalGraphiti = new Graphiti({
       driver: activeGraphiti.driver,
@@ -243,7 +254,7 @@ describe('Neo4j integration', () => {
           episode: {
             uuid: newerEpisodeUuid,
             name: 'newer episode',
-            group_id: groupId,
+            group_id: tgid,
             labels: [],
             created_at: newerTime,
             source: 'text',
@@ -257,7 +268,7 @@ describe('Neo4j integration', () => {
           episode: {
             uuid: olderEpisodeUuid,
             name: 'older episode',
-            group_id: groupId,
+            group_id: tgid,
             labels: [],
             created_at: olderTime,
             source: 'text',
@@ -294,7 +305,7 @@ describe('Neo4j integration', () => {
       `,
       {
         params: {
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -322,6 +333,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliasGraphiti = new Graphiti({
       driver: activeGraphiti.driver,
@@ -336,7 +348,7 @@ describe('Neo4j integration', () => {
           episode: {
             uuid: `episode-${randomUUID()}`,
             name: 'canonical episode',
-            group_id: groupId,
+            group_id: tgid,
             labels: [],
             created_at: canonicalTime,
             source: 'text',
@@ -350,7 +362,7 @@ describe('Neo4j integration', () => {
           episode: {
             uuid: `episode-${randomUUID()}`,
             name: 'alias episode',
-            group_id: groupId,
+            group_id: tgid,
             labels: [],
             created_at: aliasTime,
             source: 'text',
@@ -382,7 +394,7 @@ describe('Neo4j integration', () => {
       `,
       {
         params: {
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -397,6 +409,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const ambiguousGraphiti = new Graphiti({
       driver: activeGraphiti.driver,
@@ -417,7 +430,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: alexBobUuid,
       name: 'Alex',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Alex who knows Bob'
@@ -425,7 +438,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: alexCarolUuid,
       name: 'Alex',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: new Date('2026-03-27T12:01:00.000Z'),
       summary: 'Alex who knows Carol'
@@ -433,7 +446,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Bob'
@@ -441,14 +454,14 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: carolUuid,
       name: 'Carol',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Carol'
     });
     await activeGraphiti.edges.entity.save({
       uuid: `edge-${randomUUID()}`,
-      group_id: groupId,
+      group_id: tgid,
       source_node_uuid: alexBobUuid,
       target_node_uuid: bobUuid,
       created_at: setupTime,
@@ -459,7 +472,7 @@ describe('Neo4j integration', () => {
     });
     await activeGraphiti.edges.entity.save({
       uuid: `edge-${randomUUID()}`,
-      group_id: groupId,
+      group_id: tgid,
       source_node_uuid: alexCarolUuid,
       target_node_uuid: carolUuid,
       created_at: setupTime,
@@ -473,7 +486,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'ambiguous episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: new Date('2026-03-28T12:00:00.000Z'),
         source: 'text',
@@ -497,6 +510,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -505,7 +519,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Alice',
@@ -516,7 +530,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Bob'
@@ -538,7 +552,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'role update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: new Date('2026-03-27T12:00:00.000Z'),
         source: 'text',
@@ -565,7 +579,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -582,6 +596,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -591,7 +606,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Alice',
@@ -602,7 +617,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Bob'
@@ -624,7 +639,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'company update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: updateTime,
         source: 'text',
@@ -652,7 +667,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -670,6 +685,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -679,7 +695,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Alice',
@@ -690,7 +706,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Bob'
@@ -712,7 +728,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'department update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: updateTime,
         source: 'text',
@@ -740,7 +756,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -758,6 +774,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -767,7 +784,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Alice',
@@ -778,7 +795,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Bob'
@@ -800,7 +817,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'location update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: updateTime,
         source: 'text',
@@ -828,7 +845,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -846,6 +863,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -855,7 +873,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Alice',
@@ -866,7 +884,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Bob'
@@ -888,7 +906,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'title update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: updateTime,
         source: 'text',
@@ -916,7 +934,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -934,6 +952,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -943,7 +962,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Alice',
@@ -954,7 +973,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Bob'
@@ -976,7 +995,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'status update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: updateTime,
         source: 'text',
@@ -1004,7 +1023,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1022,6 +1041,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1031,7 +1051,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Alice',
@@ -1043,7 +1063,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Bob'
@@ -1065,7 +1085,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'historical company update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: olderTime,
         source: 'text',
@@ -1094,7 +1114,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1113,6 +1133,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1122,7 +1143,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Alice',
@@ -1134,7 +1155,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Bob'
@@ -1156,7 +1177,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'historical department update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: olderTime,
         source: 'text',
@@ -1185,7 +1206,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1204,6 +1225,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1213,7 +1235,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Alice',
@@ -1225,7 +1247,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Bob'
@@ -1247,7 +1269,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'historical location update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: olderTime,
         source: 'text',
@@ -1276,7 +1298,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1295,6 +1317,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1304,7 +1327,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Alice',
@@ -1316,7 +1339,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Bob'
@@ -1338,7 +1361,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'historical title update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: olderTime,
         source: 'text',
@@ -1367,7 +1390,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1386,6 +1409,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1395,7 +1419,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Alice',
@@ -1407,7 +1431,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Bob'
@@ -1429,7 +1453,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'historical status update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: olderTime,
         source: 'text',
@@ -1458,7 +1482,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1477,6 +1501,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1486,7 +1511,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Alice',
@@ -1498,7 +1523,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Bob'
@@ -1520,7 +1545,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'historical role update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: olderTime,
         source: 'text',
@@ -1548,7 +1573,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1566,6 +1591,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1574,7 +1600,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: eventTime,
       summary: 'Alice',
@@ -1586,7 +1612,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: eventTime,
       summary: 'Bob'
@@ -1608,7 +1634,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'skill update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: eventTime,
         source: 'text',
@@ -1635,7 +1661,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1652,6 +1678,7 @@ describe('Neo4j integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti!;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1660,7 +1687,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: eventTime,
       summary: 'Alice',
@@ -1671,7 +1698,7 @@ describe('Neo4j integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: eventTime,
       summary: 'Bob'
@@ -1693,7 +1720,7 @@ describe('Neo4j integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'team update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: eventTime,
         source: 'text',
@@ -1719,7 +1746,7 @@ describe('Neo4j integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1737,6 +1764,7 @@ describe('Neo4j integration', () => {
         return;
       }
 
+      const tgid = testGroupId();
       const activeGraphiti = graphiti!;
       const aliceUuid = `entity-${randomUUID()}`;
       const bobUuid = `entity-${randomUUID()}`;
@@ -1746,7 +1774,7 @@ describe('Neo4j integration', () => {
       await activeGraphiti.nodes.entity.save({
         uuid: aliceUuid,
         name: 'Alice',
-        group_id: groupId,
+        group_id: tgid,
         labels: ['Person'],
         created_at: newerTime,
         summary: 'Alice',
@@ -1760,7 +1788,7 @@ describe('Neo4j integration', () => {
       await activeGraphiti.nodes.entity.save({
         uuid: bobUuid,
         name: 'Bob',
-        group_id: groupId,
+        group_id: tgid,
         labels: ['Person'],
         created_at: newerTime,
         summary: 'Bob'
@@ -1782,7 +1810,7 @@ describe('Neo4j integration', () => {
         episode: {
           uuid: `episode-${randomUUID()}`,
           name: 'historical null update episode',
-          group_id: groupId,
+          group_id: tgid,
           labels: [],
           created_at: olderTime,
           source: 'text',
@@ -1813,7 +1841,7 @@ describe('Neo4j integration', () => {
         {
           params: {
             uuid: aliceUuid,
-            group_id: groupId
+            group_id: tgid
           },
           routing: 'r'
         }
@@ -1837,6 +1865,7 @@ describe('Neo4j integration', () => {
         return;
       }
 
+      const tgid = testGroupId();
       const activeGraphiti = graphiti!;
       const batchGraphiti = new Graphiti({
         driver: activeGraphiti.driver,
@@ -1856,7 +1885,7 @@ describe('Neo4j integration', () => {
             episode: {
               uuid: `episode-${randomUUID()}`,
               name: 'newest batch episode',
-              group_id: groupId,
+              group_id: tgid,
               labels: [],
               created_at: new Date('2026-03-31T12:00:00.000Z'),
               source: 'text',
@@ -1870,7 +1899,7 @@ describe('Neo4j integration', () => {
             episode: {
               uuid: `episode-${randomUUID()}`,
               name: 'oldest batch episode',
-              group_id: groupId,
+              group_id: tgid,
               labels: [],
               created_at: new Date('2026-03-29T12:00:00.000Z'),
               source: 'text',
@@ -1884,7 +1913,7 @@ describe('Neo4j integration', () => {
             episode: {
               uuid: `episode-${randomUUID()}`,
               name: 'middle batch episode',
-              group_id: groupId,
+              group_id: tgid,
               labels: [],
               created_at: new Date('2026-03-30T12:00:00.000Z'),
               source: 'text',
@@ -1915,7 +1944,7 @@ describe('Neo4j integration', () => {
         `,
         {
           params: {
-            group_id: groupId
+            group_id: tgid
           },
           routing: 'r'
         }

@@ -22,7 +22,14 @@ describe('Falkor integration', () => {
   let graphiti: Graphiti | null = null;
   let setupSucceeded = false;
   const groupId = `ts-port-falkor-${randomUUID()}`;
+  const allGroupIds = [groupId];
   const database = process.env.FALKOR_DATABASE ?? 'default_db';
+
+  function testGroupId(): string {
+    const id = `ts-port-falkor-${randomUUID()}`;
+    allGroupIds.push(id);
+    return id;
+  }
 
   beforeAll(async () => {
     if (!hasFalkorEnv) {
@@ -63,18 +70,20 @@ describe('Falkor integration', () => {
       return;
     }
 
-    await graphiti.driver.executeQuery(
-      `
-        MATCH (n)
-        WHERE n.group_id = $group_id
-        WITH collect(n) AS nodes
-        FOREACH (node IN nodes | DETACH DELETE node)
-        RETURN size(nodes) AS deleted_count
-      `,
-      {
-        params: { group_id: groupId }
-      }
-    );
+    for (const gid of allGroupIds) {
+      await graphiti.driver.executeQuery(
+        `
+          MATCH (n)
+          WHERE n.group_id = $group_id
+          WITH collect(n) AS nodes
+          FOREACH (node IN nodes | DETACH DELETE node)
+          RETURN size(nodes) AS deleted_count
+        `,
+        {
+          params: { group_id: gid }
+        }
+      );
+    }
 
     await graphiti.close();
   });
@@ -84,6 +93,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const ingestGraphiti = new Graphiti({
       driver: activeGraphiti.driver,
@@ -99,7 +109,7 @@ describe('Falkor integration', () => {
     const ingestEpisode: EpisodicNode = {
       uuid: ingestEpisodeUuid,
       name: 'episode',
-      group_id: groupId,
+      group_id: tgid,
       labels: [],
       created_at: new Date(),
       source: 'text',
@@ -135,7 +145,7 @@ describe('Falkor integration', () => {
       {
         params: {
           episode_uuid: ingestEpisodeUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -151,6 +161,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const temporalGraphiti = new Graphiti({
       driver: activeGraphiti.driver,
@@ -167,7 +178,7 @@ describe('Falkor integration', () => {
           episode: {
             uuid: newerEpisodeUuid,
             name: 'newer episode',
-            group_id: groupId,
+            group_id: tgid,
             labels: [],
             created_at: newerTime,
             source: 'text',
@@ -181,7 +192,7 @@ describe('Falkor integration', () => {
           episode: {
             uuid: olderEpisodeUuid,
             name: 'older episode',
-            group_id: groupId,
+            group_id: tgid,
             labels: [],
             created_at: olderTime,
             source: 'text',
@@ -218,7 +229,7 @@ describe('Falkor integration', () => {
       `,
       {
         params: {
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -246,6 +257,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliasGraphiti = new Graphiti({
       driver: activeGraphiti.driver,
@@ -260,7 +272,7 @@ describe('Falkor integration', () => {
           episode: {
             uuid: `episode-${randomUUID()}`,
             name: 'canonical episode',
-            group_id: groupId,
+            group_id: tgid,
             labels: [],
             created_at: canonicalTime,
             source: 'text',
@@ -274,7 +286,7 @@ describe('Falkor integration', () => {
           episode: {
             uuid: `episode-${randomUUID()}`,
             name: 'alias episode',
-            group_id: groupId,
+            group_id: tgid,
             labels: [],
             created_at: aliasTime,
             source: 'text',
@@ -303,7 +315,7 @@ describe('Falkor integration', () => {
       `,
       {
         params: {
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -318,6 +330,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const ambiguousGraphiti = new Graphiti({
       driver: activeGraphiti.driver,
@@ -338,7 +351,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: alexBobUuid,
       name: 'Alex',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Alex who knows Bob'
@@ -346,7 +359,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: alexCarolUuid,
       name: 'Alex',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: new Date('2026-03-27T12:01:00.000Z'),
       summary: 'Alex who knows Carol'
@@ -354,7 +367,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Bob'
@@ -362,14 +375,14 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: carolUuid,
       name: 'Carol',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Carol'
     });
     await activeGraphiti.edges.entity.save({
       uuid: `edge-${randomUUID()}`,
-      group_id: groupId,
+      group_id: tgid,
       source_node_uuid: alexBobUuid,
       target_node_uuid: bobUuid,
       created_at: setupTime,
@@ -380,7 +393,7 @@ describe('Falkor integration', () => {
     });
     await activeGraphiti.edges.entity.save({
       uuid: `edge-${randomUUID()}`,
-      group_id: groupId,
+      group_id: tgid,
       source_node_uuid: alexCarolUuid,
       target_node_uuid: carolUuid,
       created_at: setupTime,
@@ -394,7 +407,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'ambiguous episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: new Date('2026-03-28T12:00:00.000Z'),
         source: 'text',
@@ -418,6 +431,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -426,7 +440,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Alice',
@@ -437,7 +451,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Bob'
@@ -459,7 +473,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'role update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: new Date('2026-03-27T12:00:00.000Z'),
         source: 'text',
@@ -486,7 +500,7 @@ describe('Falkor integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -503,6 +517,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -512,7 +527,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Alice',
@@ -523,7 +538,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Bob'
@@ -545,7 +560,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'company update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: updateTime,
         source: 'text',
@@ -573,7 +588,7 @@ describe('Falkor integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -591,6 +606,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -600,7 +616,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Alice',
@@ -611,7 +627,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Bob'
@@ -633,7 +649,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'department update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: updateTime,
         source: 'text',
@@ -661,7 +677,7 @@ describe('Falkor integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -679,6 +695,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -688,7 +705,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Alice',
@@ -699,7 +716,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Bob'
@@ -721,7 +738,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'location update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: updateTime,
         source: 'text',
@@ -749,7 +766,7 @@ describe('Falkor integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -767,6 +784,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -776,7 +794,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Alice',
@@ -787,7 +805,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Bob'
@@ -809,7 +827,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'title update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: updateTime,
         source: 'text',
@@ -837,7 +855,7 @@ describe('Falkor integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -855,6 +873,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -864,7 +883,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Alice',
@@ -875,7 +894,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: setupTime,
       summary: 'Bob'
@@ -897,7 +916,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'status update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: updateTime,
         source: 'text',
@@ -925,7 +944,7 @@ describe('Falkor integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -943,6 +962,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -952,7 +972,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Alice',
@@ -964,7 +984,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Bob'
@@ -986,7 +1006,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'historical company update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: olderTime,
         source: 'text',
@@ -1015,7 +1035,7 @@ describe('Falkor integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1034,6 +1054,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1043,7 +1064,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Alice',
@@ -1055,7 +1076,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Bob'
@@ -1077,7 +1098,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'historical department update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: olderTime,
         source: 'text',
@@ -1106,7 +1127,7 @@ describe('Falkor integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1125,6 +1146,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1134,7 +1156,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Alice',
@@ -1146,7 +1168,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Bob'
@@ -1168,7 +1190,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'historical location update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: olderTime,
         source: 'text',
@@ -1197,7 +1219,7 @@ describe('Falkor integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1216,6 +1238,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1225,7 +1248,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Alice',
@@ -1237,7 +1260,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Bob'
@@ -1259,7 +1282,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'historical title update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: olderTime,
         source: 'text',
@@ -1288,7 +1311,7 @@ describe('Falkor integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1307,6 +1330,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1316,7 +1340,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Alice',
@@ -1328,7 +1352,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Bob'
@@ -1350,7 +1374,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'historical status update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: olderTime,
         source: 'text',
@@ -1379,7 +1403,7 @@ describe('Falkor integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1398,6 +1422,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1407,7 +1432,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Alice',
@@ -1419,7 +1444,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: newerTime,
       summary: 'Bob'
@@ -1441,7 +1466,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'historical role update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: olderTime,
         source: 'text',
@@ -1469,7 +1494,7 @@ describe('Falkor integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1487,6 +1512,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1495,7 +1521,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: eventTime,
       summary: 'Alice',
@@ -1507,7 +1533,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: eventTime,
       summary: 'Bob'
@@ -1529,7 +1555,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'skill update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: eventTime,
         source: 'text',
@@ -1556,7 +1582,7 @@ describe('Falkor integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1573,6 +1599,7 @@ describe('Falkor integration', () => {
       return;
     }
 
+    const tgid = testGroupId();
     const activeGraphiti = graphiti;
     const aliceUuid = `entity-${randomUUID()}`;
     const bobUuid = `entity-${randomUUID()}`;
@@ -1581,7 +1608,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: aliceUuid,
       name: 'Alice',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: eventTime,
       summary: 'Alice',
@@ -1592,7 +1619,7 @@ describe('Falkor integration', () => {
     await activeGraphiti.nodes.entity.save({
       uuid: bobUuid,
       name: 'Bob',
-      group_id: groupId,
+      group_id: tgid,
       labels: ['Person'],
       created_at: eventTime,
       summary: 'Bob'
@@ -1614,7 +1641,7 @@ describe('Falkor integration', () => {
       episode: {
         uuid: `episode-${randomUUID()}`,
         name: 'team update episode',
-        group_id: groupId,
+        group_id: tgid,
         labels: [],
         created_at: eventTime,
         source: 'text',
@@ -1640,7 +1667,7 @@ describe('Falkor integration', () => {
       {
         params: {
           uuid: aliceUuid,
-          group_id: groupId
+          group_id: tgid
         },
         routing: 'r'
       }
@@ -1658,6 +1685,7 @@ describe('Falkor integration', () => {
         return;
       }
 
+      const tgid = testGroupId();
       const activeGraphiti = graphiti;
       const aliceUuid = `entity-${randomUUID()}`;
       const bobUuid = `entity-${randomUUID()}`;
@@ -1667,7 +1695,7 @@ describe('Falkor integration', () => {
       await activeGraphiti.nodes.entity.save({
         uuid: aliceUuid,
         name: 'Alice',
-        group_id: groupId,
+        group_id: tgid,
         labels: ['Person'],
         created_at: newerTime,
         summary: 'Alice',
@@ -1681,7 +1709,7 @@ describe('Falkor integration', () => {
       await activeGraphiti.nodes.entity.save({
         uuid: bobUuid,
         name: 'Bob',
-        group_id: groupId,
+        group_id: tgid,
         labels: ['Person'],
         created_at: newerTime,
         summary: 'Bob'
@@ -1703,7 +1731,7 @@ describe('Falkor integration', () => {
         episode: {
           uuid: `episode-${randomUUID()}`,
           name: 'historical null update episode',
-          group_id: groupId,
+          group_id: tgid,
           labels: [],
           created_at: olderTime,
           source: 'text',
@@ -1734,7 +1762,7 @@ describe('Falkor integration', () => {
         {
           params: {
             uuid: aliceUuid,
-            group_id: groupId
+            group_id: tgid
           },
           routing: 'r'
         }
@@ -1758,6 +1786,7 @@ describe('Falkor integration', () => {
         return;
       }
 
+      const tgid = testGroupId();
       const activeGraphiti = graphiti;
       const batchGraphiti = new Graphiti({
         driver: activeGraphiti.driver,
@@ -1777,7 +1806,7 @@ describe('Falkor integration', () => {
             episode: {
               uuid: `episode-${randomUUID()}`,
               name: 'newest batch episode',
-              group_id: groupId,
+              group_id: tgid,
               labels: [],
               created_at: new Date('2026-03-31T12:00:00.000Z'),
               source: 'text',
@@ -1791,7 +1820,7 @@ describe('Falkor integration', () => {
             episode: {
               uuid: `episode-${randomUUID()}`,
               name: 'oldest batch episode',
-              group_id: groupId,
+              group_id: tgid,
               labels: [],
               created_at: new Date('2026-03-29T12:00:00.000Z'),
               source: 'text',
@@ -1805,7 +1834,7 @@ describe('Falkor integration', () => {
             episode: {
               uuid: `episode-${randomUUID()}`,
               name: 'middle batch episode',
-              group_id: groupId,
+              group_id: tgid,
               labels: [],
               created_at: new Date('2026-03-30T12:00:00.000Z'),
               source: 'text',
@@ -1836,7 +1865,7 @@ describe('Falkor integration', () => {
         `,
         {
           params: {
-            group_id: groupId
+            group_id: tgid
           },
           routing: 'r'
         }
