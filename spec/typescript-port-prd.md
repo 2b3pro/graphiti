@@ -477,7 +477,7 @@ Use this exact clean verification flow:
 
 Current status:
 
-- `279 pass` (from `packages/*/src/` — excludes stale dist artifacts)
+- `294 pass` (from `packages/*/src/` — excludes stale dist artifacts)
 - `21 Neo4j integration tests pass` against live Neo4j 5.26
 - `20 FalkorDB integration tests pass` against live FalkorDB
 - `0 fail`
@@ -602,15 +602,11 @@ Saga and auxiliary edge namespaces:
 
 ### Gap Category 3: Provider Coverage
 
-OpenAI, Anthropic, Gemini, and Ollama are implemented. Python supports 7 LLM providers, 4 embedder providers, and 3 reranker providers. Remaining:
+Provider coverage is **complete** — all Python providers have TS equivalents:
 
-1. Groq LLM client
-2. Azure OpenAI LLM + embedder (enterprise deployments)
-3. Voyage AI embedder
-
-Done:
-- ~~Gemini reranker~~ — done (direct 0-100 scoring via Gemini API)
-- ~~OpenAI-compatible generic client~~ — done (Ollama LLM + embedder via /v1 endpoint)
+**LLM clients (6):** OpenAI, Anthropic, Gemini, Groq, Azure OpenAI, Ollama
+**Embedders (5):** OpenAI, Gemini, Azure OpenAI, Ollama, Voyage AI
+**Rerankers (2):** OpenAI (logprobs), Gemini (direct scoring)
 
 ### Gap Category 4: Community Graph Support
 
@@ -686,18 +682,12 @@ The MCP package implements all 9 tools from the Python server, with stdio transp
 
 ### Milestone F: Provider Parity
 
-Status: in progress (core providers done)
+Status: **done**
 
-Progress:
-
-- Anthropic LLM client — done
-- Gemini LLM client — done
-- Gemini embedder — done
-
-Remaining:
-
-- Groq, Azure OpenAI, Gemini reranker
-- provider factory/registry pattern (optional)
+All Python providers have TS equivalents:
+- LLM clients: OpenAI, Anthropic, Gemini, Groq, Azure OpenAI, Ollama
+- Embedders: OpenAI, Gemini, Azure OpenAI, Ollama, Voyage AI
+- Rerankers: OpenAI (logprobs), Gemini (direct scoring)
 
 ### Milestone G: Community Graph Support
 
@@ -763,9 +753,9 @@ find packages -maxdepth 4 -type f -not -path '*/node_modules/*' -not -path '*/di
 
 ## Recommended Next Steps
 
-### Priority 1: Remaining Providers
+### ~~Priority 1: Remaining Providers~~ — done
 
-Add Groq, Azure OpenAI, and Voyage AI embedder. OpenAI, Anthropic, Gemini (LLM + embedder + reranker), and Ollama (LLM + embedder) are done.
+All Python providers have TS equivalents. See "Groq, Azure OpenAI, and Voyage AI Providers" in Completed Priorities.
 
 ## Completed Priorities
 
@@ -788,6 +778,15 @@ Added community node/edge CRUD operations (Neo4j + FalkorDB), community namespac
 ### Core LLM/Embedder Providers (done)
 
 Added AnthropicClient (claude-sonnet-4-6-latest), GeminiClient (gemini-3-flash-preview), and GeminiEmbedder (text-embedding-004). All implement the existing LLMClient/EmbedderClient interfaces with retry logic, rate limit handling, and tracer integration. 21 unit tests.
+
+### Groq, Azure OpenAI, and Voyage AI Providers (done)
+
+Added remaining providers for full Python parity:
+
+- **Groq LLM client:** OpenAI-compatible wrapper for Groq's ultra-fast inference. Default: `llama-3.3-70b-versatile`. 4 tests.
+- **Azure OpenAI LLM client:** Wraps `AzureOpenAI` constructor for enterprise deployments (Azure AD auth, private endpoints, deployment names). Default: `gpt-4o`. 4 tests.
+- **Azure OpenAI embedder:** Takes pre-configured Azure client, supports dim truncation. Default: `text-embedding-3-small`. 4 tests.
+- **Voyage AI embedder:** Direct REST API (no SDK dep) for high-quality retrieval embeddings. Default: `voyage-3` (1024 dims). 3 tests.
 
 ### Gemini Reranker and Ollama Providers (done)
 
