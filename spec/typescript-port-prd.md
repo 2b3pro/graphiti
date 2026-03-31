@@ -53,7 +53,6 @@ The TypeScript port must preserve the core product concepts:
 ### Explicitly Deferred
 
 - Neptune/OpenSearch port
-- community graph support
 - saga support
 - full provider matrix (OpenAI, Anthropic, Gemini done; Groq, Azure, Voyage missing)
 - advanced bulk dedup (MinHash fuzzy matching, LLM-assisted dedup)
@@ -236,7 +235,6 @@ Pre-configured search recipes:
 
 Not implemented:
 
-- community search (config exists, but no community operations to back it)
 - broader parity beyond the current fact-oriented server routes
 
 ### Ingestion
@@ -466,18 +464,24 @@ Not implemented:
 Use this exact clean verification flow:
 
 ```bash
-rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
-~/.bun/bin/bun test packages
+# Unit + integration tests (avoids stale dist/ artifacts)
+~/.bun/bin/bun test packages/*/src/ packages/*/tests/
+
+# Or run integration tests specifically
+~/.bun/bin/bun test packages/core/src/driver/neo4j-driver.integration.test.ts
+~/.bun/bin/bun test packages/core/src/driver/falkordb-driver.integration.test.ts
+
+# Type checking
 ~/.bun/bin/bunx tsc -b --pretty false
 ```
 
 Current status:
 
-- `375 pass`
-- `42 skip` (integration tests without database connections)
+- `209 pass` (from `packages/*/src/` — excludes stale dist artifacts)
+- `21 Neo4j integration tests pass` against live Neo4j 5.26
+- `20 FalkorDB integration tests pass` against live FalkorDB
 - `0 fail`
-- `763 expect() calls`
-- `417 tests across 39 files`
+- Integration tests auto-activate via `.env.test` (password: `password` for Neo4j)
 
 Test file inventory:
 
@@ -514,6 +518,14 @@ Notable integration coverage:
 - historical attribute non-regression
 - configured string-set accumulation
 - stateful string timestamp tracking
+- per-test group ID isolation (prevents entity resolution cross-contamination)
+
+Integration test infrastructure:
+
+- each ingest test uses `testGroupId()` for isolation — no cross-test entity pollution
+- `afterAll` cleans up all group IDs created during the test run
+- `packages/core/bunfig.toml` scopes test discovery to `src/` (avoids stale `dist/` artifacts)
+- `.env.test` auto-loaded by Bun with Neo4j and FalkorDB connection details
 
 ## Important Environment Notes
 
@@ -650,7 +662,7 @@ Status: done
 
 ### Milestone D: Bulk And Maintenance Parity
 
-Status: in progress
+Status: done
 
 Progress:
 
@@ -658,11 +670,7 @@ Progress:
 - `deleteByUuids()` across all namespaces — done
 - `getNodesAndEdgesByEpisode()` refactored to batch queries — done
 - `addEpisodeBulk()` with parallel extraction + name dedup — done
-
-Remaining:
-
-- LLM-assisted deduplication
-- community maintenance or an explicit decision to defer it
+- integration tests validated against live Neo4j and FalkorDB — done
 
 ### Milestone E: MCP Port
 
@@ -717,11 +725,11 @@ Main risk areas:
 
 ### 2. Backend Drift
 
-Neo4j and FalkorDB share a TS-side orchestration layer, but still need more live backend validation as behavior broadens.
+Neo4j and FalkorDB share a TS-side orchestration layer. Both backends are now validated by integration tests (21 Neo4j + 20 FalkorDB) covering CRUD, ingest, temporal contradictions, alias resolution, and attribute maintenance.
 
 ### 3. Artifact Pollution
 
-If `dist/*.test.js` exists, Bun may run generated tests in addition to source tests.
+If `dist/*.test.js` exists, Bun may run generated tests in addition to source tests. Mitigated by `packages/core/bunfig.toml` (`root = "./src"`) and by running tests via `bun test packages/*/src/` from root.
 
 ### 4. Environment Friction
 
@@ -744,8 +752,8 @@ find packages -maxdepth 4 -type f -not -path '*/node_modules/*' -not -path '*/di
 5. run clean verification:
 
 ```bash
-rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
-~/.bun/bin/bun test packages
+~/.bun/bin/bun test packages/*/src/ packages/*/tests/
+~/.bun/bin/bun test packages/core/src/driver/neo4j-driver.integration.test.ts
 ~/.bun/bin/bunx tsc -b --pretty false
 ```
 
@@ -786,6 +794,18 @@ Added community node/edge CRUD operations (Neo4j + FalkorDB), community namespac
 ### Core LLM/Embedder Providers (done)
 
 Added AnthropicClient (claude-sonnet-4-6-latest), GeminiClient (gemini-3-flash-preview), and GeminiEmbedder (text-embedding-004). All implement the existing LLMClient/EmbedderClient interfaces with retry logic, rate limit handling, and tracer integration. 21 unit tests.
+
+### Integration Test Infrastructure (done)
+
+Fixed and validated all 21 Neo4j and 20 FalkorDB integration tests against live databases. Key fixes:
+
+- **Test isolation:** Each ingest test gets its own `testGroupId()` — prevents entity resolution cross-contamination between tests
+- **Neo4j property serialization:** `serializeForCypher` now JSON-stringifies nested objects (non-Date, non-Array) to avoid "Map{}" errors
+- **Neo4j Record normalization:** `recordToPlainObject()` converts Neo4j Record objects to plain JS objects, `normalizeNeo4jValue()` handles integer ({low,high}) and JSON-string parsing
+- **Neo4j LIMIT float fix:** All parameterized `LIMIT` clauses use `toInteger($limit)` since Bolt sends JS numbers as float64
+- **FalkorDB serialization:** Added `serializeForFalkor` variant for FalkorDB operations
+- **Episodic edge serialization:** Fixed raw Date objects passed to Bolt without `serializeForCypher`
+- **bunfig.toml:** Scopes test discovery to `src/` to avoid stale immutable `dist/` artifacts
 
 ## Files Most Worth Reading Next
 
