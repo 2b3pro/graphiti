@@ -48,13 +48,18 @@ The TypeScript port must preserve the core product concepts:
 - Bun-native server package
 - search parity work
 - ingestion/extraction parity work
+- MCP server port
 
 ### Explicitly Deferred
 
-- MCP port
 - Neptune/OpenSearch port
 - community graph support
-- full provider matrix
+- saga support
+- full provider matrix (only OpenAI implemented)
+- bulk operations (`addEpisodeBulk`, `saveBulk`, `deleteByUuids`)
+- LLM-assisted deduplication
+- content chunking
+- token tracking and LLM response caching
 
 ### Removed From Active Scope
 
@@ -68,11 +73,11 @@ Reason:
 
 Active TS packages under `packages/`:
 
-- `packages/shared`
-- `packages/core`
-- `packages/server`
-- `packages/mcp`
-- `packages/testkit`
+- `packages/shared` — 7 source files
+- `packages/core` — 55 source files
+- `packages/server` — 7 source files
+- `packages/mcp` — 3 source files
+- `packages/testkit` — 6 source files
 
 Important root files:
 
@@ -85,17 +90,19 @@ Important root files:
 
 ## Current Status Summary
 
-The TypeScript port is no longer scaffold-only.
+The TypeScript port is production-relevant for core operations.
 
 There is now a functioning TS core with:
 
 - Neo4j and FalkorDB driver paths
-- a usable `Graphiti` client
+- a usable `Graphiti` client with all primary CRUD and search methods
 - reusable backend operation layers
-- working search execution and reranking
+- working search execution with all non-community rerankers
 - server-wired non-community search filters and center-node reranking controls
-- a real raw-text ingestion path
+- a real raw-text ingestion path with heuristic and model-backed extractors/hydrators
 - a Bun-native HTTP server with the current route surface implemented
+- an MCP server with all 9 tools ported from Python
+- OpenAI providers for LLM, embedder, and cross-encoder
 
 ## Implemented Today
 
@@ -103,17 +110,18 @@ There is now a functioning TS core with:
 
 Implemented:
 
-- shared errors
+- shared errors (`GraphitiError` and subclasses)
 - group id validation
 - node label validation
 - graph provider helpers
-- time utilities
+- time utilities (`utcNow`)
+- migration status types
 
 ### Core Package
 
 Implemented:
 
-- domain models for nodes and edges
+- domain models for nodes and edges (entity, episodic, community types defined)
 - search config/filter/recipe layer
 - Graphiti client
 - Neo4j driver adapter
@@ -123,6 +131,9 @@ Implemented:
   - entity edges
   - episode nodes
   - episodic mention edges
+- OpenAI LLM provider (with reasoning model detection, retry logic, tracer integration)
+- OpenAI embedder provider (text-embedding-3-small/large, multi-dimension)
+- OpenAI cross-encoder/reranker provider
 
 Implemented `Graphiti` methods:
 
@@ -131,6 +142,8 @@ Implemented `Graphiti` methods:
 - `ingestEpisode(...)`
 - `ingestEpisodes(...)`
 - `search(...)`
+- `searchEdges(...)` — convenience method returning `EntityEdge[]`
+- `getNodesAndEdgesByEpisode(...)` — load edges and nodes by episode UUIDs
 - `retrieveEpisodes(...)`
 - `deleteEntityEdge(...)`
 - `deleteEpisode(...)`
@@ -138,6 +151,52 @@ Implemented `Graphiti` methods:
 - `clear()`
 - `buildIndicesAndConstraints(...)`
 - `close()`
+
+### Namespace Operations
+
+#### `graphiti.nodes.entity`
+
+| Method | Status |
+| --- | --- |
+| `save(node)` | Working |
+| `getByUuid(uuid)` | Working |
+| `deleteByGroupId(groupId)` | Working |
+| `saveBulk(nodes)` | Missing |
+| `getByUuids(uuids)` | Missing |
+| `getByGroupIds(groupIds)` | Missing |
+| `deleteByUuids(uuids)` | Missing |
+
+#### `graphiti.nodes.episode`
+
+| Method | Status |
+| --- | --- |
+| `save(node)` | Working |
+| `getByUuid(uuid)` | Working |
+| `getByGroupIds(groupIds, lastN, referenceTime)` | Working |
+| `deleteByUuid(uuid)` | Working |
+| `deleteByGroupId(groupId)` | Working |
+| `saveBulk(nodes)` | Missing |
+| `getByUuids(uuids)` | Missing |
+| `deleteByUuids(uuids)` | Missing |
+
+#### `graphiti.edges.entity`
+
+| Method | Status |
+| --- | --- |
+| `save(edge)` | Working |
+| `getByUuid(uuid)` | Working |
+| `deleteByUuid(uuid)` | Working |
+| `deleteByGroupId(groupId)` | Working |
+| `saveBulk(edges)` | Missing |
+| `getByUuids(uuids)` | Missing |
+| `deleteByUuids(uuids)` | Missing |
+
+#### `graphiti.edges.episodic`
+
+| Method | Status |
+| --- | --- |
+| `save(edge)` | Working |
+| `saveBulk(edges)` | Missing |
 
 ### Search
 
@@ -153,30 +212,37 @@ Implemented:
 - episode-mentions reranking
 - cosine similarity search for nodes and edges
 - MMR reranking for nodes and edges
-- cross-encoder reranking for nodes and edges
-- cross-encoder reranking for episodes
+- cross-encoder reranking for nodes, edges, and episodes
 - Neo4j-backed search operations
 - FalkorDB-backed search operations
 - Graphiti-level `search_filter` support for non-community search
+- property filters in edge search filter query constructor
+- Parallel search execution via `Promise.all` for node/edge/episode search
 - server `/search` support for `center_node_uuid` and structured non-community search filters
+
+Pre-configured search recipes:
+
+- `COMBINED_HYBRID_SEARCH_RRF` / `_MMR` / `_CROSS_ENCODER`
+- `EDGE_HYBRID_SEARCH_RRF` / `_MMR` / `_NODE_DISTANCE` / `_EPISODE_MENTIONS` / `_CROSS_ENCODER`
+- `NODE_HYBRID_SEARCH_RRF` / `_MMR` / `_NODE_DISTANCE` / `_EPISODE_MENTIONS` / `_CROSS_ENCODER`
+- `COMMUNITY_HYBRID_SEARCH_RRF` / `_MMR` / `_CROSS_ENCODER`
 
 Not implemented:
 
-- community search
-- full Python search parity
-- broader non-community result-shape parity beyond the current fact-oriented server routes
+- community search (config exists, but no community operations to back it)
+- broader parity beyond the current fact-oriented server routes
 
 ### Ingestion
 
 Implemented:
 
 - pluggable episode extractor interface
-- default heuristic extractor
-- model-backed extractor with heuristic fallback
+- default heuristic extractor (capitalized names, 7 relation patterns, alias via parenthetical)
+- model-backed extractor with heuristic fallback (LLM-powered JSON extraction)
 - pluggable node hydrator interface
-- default heuristic hydrator
+- default heuristic hydrator (mention count, edge count, timestamps, source tracking)
 - model-backed hydrator with heuristic baseline merge and fallback
-- resolution/dedupe pipeline
+- resolution/dedupe pipeline (lexical, semantic, alias-aware, relationship-context)
 - conflicting-edge invalidation
 - embedder-assisted semantic resolution
 - stricter validation for model extraction and hydration responses
@@ -203,82 +269,14 @@ Current ingest stages:
 6. hydrate entity summaries and basic attributes
 7. persist episode, entities, active edges, invalidated edges, and mention edges
 
-Current extraction/hydration/resolution quality:
-
-- extraction supports:
-  - heuristic extraction
-  - model-backed extraction through `LLMClient.generateText(...)`
-  - alias extraction and canonicalization for heuristic and model-backed entity extraction
-  - heuristic fallback when model output is invalid or parseable-but-invalid
-- hydration supports:
-  - heuristic hydration
-  - model-backed hydration through `LLMClient.generateText(...)`
-  - heuristic baseline merge plus fallback when model output is invalid or parseable-but-invalid
-  - cumulative maintenance updates for `mention_count`, `edge_count`, `first_seen_at`, `last_seen_at`, and source history
-  - latest-value plus `${key}_history` tracking for changing model-derived string attributes
-  - historical episodes enrich string-attribute history without overwriting newer values
-  - configured string-set accumulation for attributes such as `aliases`, `skills`, `teams`, and `tags`
-  - per-field timestamp tracking for selected stateful strings such as `role_updated_at`
-  - explicit TS-side attribute policy registry in `packages/core/src/ingest/hydrator.ts`
-  - current policy table:
-    - non-historical maintenance fields:
-      - `source_description`
-      - `first_seen_at`
-      - `last_seen_at`
-    - cumulative string-set fields:
-      - `aliases`
-      - `skills`
-      - `teams`
-      - `tags`
-    - temporal latest-plus-history string fields with `${key}_updated_at` support:
-      - `role`
-      - `title`
-      - `status`
-      - `location`
-      - `company`
-      - `department`
-    - default behavior for other attributes:
-      - changing non-null string values still use latest-value plus `${key}_history`
-      - uncategorized strings do not get `${key}_updated_at` unless they are added to the temporal policy set
-      - non-string scalars overwrite with the incoming non-null value
-      - incoming `null` is ignored so model uncertainty does not erase maintained state
-    - current validation status:
-      - temporal latest-plus-history behavior is covered in unit, orchestration, and live Neo4j/Falkor tests for:
-        - `role`
-        - `title`
-        - `status`
-        - `location`
-        - `company`
-        - `department`
-      - string-set accumulation is covered in unit, orchestration, and live Neo4j/Falkor tests for:
-        - `aliases`
-        - `skills`
-        - `teams`
-        - `tags`
-      - the currently implemented policy registry now has direct field coverage for every temporal field and every configured string-set field
-    - practical extension rule for new attributes:
-      - add a field to the temporal policy set only when newer-versus-older evidence should preserve a single latest value and timestamped transition history
-      - add a field to the string-set policy set only when evidence should accumulate rather than replace
-      - otherwise rely on the default non-null merge behavior until Python parity or public API requirements justify a stronger contract
-- entity resolution supports:
-  - exact lexical matching
-  - approximate token/name matching
-  - alias-aware matching for common name variants
-  - alias-aware matching from stored entity `attributes.aliases`
-  - relationship-context disambiguation when multiple candidates have similar lexical scores
-  - semantic cosine matching when embeddings are present
-- edge resolution supports:
-  - exact fact reuse
-  - semantic fact reuse when embeddings are present
-  - conflicting-edge invalidation when facts differ materially
-  - historical contradiction handling when older evidence arrives after newer facts
-
 Still missing for ingestion parity:
 
+- `addEpisodeBulk()` — Python's sophisticated bulk extraction/dedup pipeline (~200 LOC)
+- LLM-assisted node and edge deduplication (Python has dedicated prompts)
+- content chunking
 - semantic entity linking beyond names
-- richer attribute extraction beyond the current maintenance fields
 - community maintenance
-- Python-level temporal maintenance behavior
+- saga support
 
 ### Server Package
 
@@ -296,10 +294,35 @@ Implemented Bun-native routes:
 - `DELETE /episode/:uuid`
 - `POST /clear`
 
-The server uses Bun’s native `fetch` handler and can run from:
+The server uses Bun's native `fetch` handler and can run from:
 
 - `bun run packages/server/src/start.ts`
 - `bun run start` from `packages/server`
+
+### MCP Package
+
+Implemented via `@modelcontextprotocol/sdk` with Zod schema validation:
+
+- `add_memory` — Ingest episode into graph via `ingestEpisode()`
+- `search_nodes` — Search entities using `NODE_HYBRID_SEARCH_RRF`
+- `search_memory_facts` — Search edges via `searchEdges()`
+- `delete_entity_edge` — Delete edge by UUID
+- `delete_episode` — Delete episode by UUID
+- `get_entity_edge` — Fetch edge by UUID
+- `get_episodes` — List recent episodes by group
+- `clear_graph` — Delete data for specified group IDs
+- `get_status` — Health check via database ping
+
+Transport: stdio (via `StdioServerTransport`).
+
+Config: `McpServerConfig` with `default_group_id`.
+
+All tools delegate to the `Graphiti` core client — no business logic duplication.
+
+Not implemented:
+
+- HTTP/streamable transport
+- async queue processing (Python uses background episode queuing per group)
 
 ## Backend Strategy
 
@@ -315,6 +338,37 @@ The server uses Bun’s native `fetch` handler and can run from:
 ### Removed
 
 - Kuzu
+
+## Provider Support
+
+### LLM Providers
+
+| Provider | Python | TypeScript | Status |
+| --- | --- | --- | --- |
+| OpenAI | Yes | Yes | Parity |
+| Anthropic | Yes | No | Missing |
+| Gemini | Yes | No | Missing |
+| Groq | Yes | No | Missing |
+| Azure OpenAI | Yes | No | Missing |
+| OpenAI-compatible (generic) | Yes | No | Missing |
+| GLiNER2 | Yes | No | Missing |
+
+### Embedder Providers
+
+| Provider | Python | TypeScript | Status |
+| --- | --- | --- | --- |
+| OpenAI | Yes | Yes | Parity |
+| Gemini | Yes | No | Missing |
+| Azure OpenAI | Yes | No | Missing |
+| Voyage AI | Yes | No | Missing |
+
+### Cross-Encoder / Reranker Providers
+
+| Provider | Python | TypeScript | Status |
+| --- | --- | --- | --- |
+| OpenAI | Yes | Yes | Parity |
+| Gemini | Yes | No | Missing |
+| BGE Reranker | Yes | No | Missing |
 
 ## Feature Matrix
 
@@ -333,10 +387,14 @@ The server uses Bun’s native `fetch` handler and can run from:
 | Save episodic mention edge | Yes | Yes | Working |
 | Add triplet | Yes | Yes | Working |
 | Add episode | Yes | Yes | Working |
-| Ingest raw episode text | Yes | Yes | Working, heuristic |
+| Ingest raw episode text | Yes | Yes | Working, heuristic + model |
 | Ingest episode batches | Yes | Yes | Working, sequential |
+| Search edges (convenience) | Yes | Yes | Working |
+| Get nodes/edges by episode | Yes | Yes | Working |
 | Retrieve episodes by group | Generic query path | Generic query path | Working |
 | Build indices | Yes | Minimal | Working |
+| Add episode bulk | No | No | Missing |
+| Build communities | No | No | Missing |
 
 ### Search
 
@@ -353,6 +411,8 @@ The server uses Bun’s native `fetch` handler and can run from:
 | Cosine similarity | Yes | Yes | Working |
 | MMR | Yes | Yes | Working |
 | Cross-encoder reranking | Yes | Yes | Working |
+| Property filters (edge) | Yes | Yes | Working |
+| Parallel search execution | Yes | Yes | Working |
 | Community search | No | No | Missing |
 
 ### Server
@@ -371,6 +431,20 @@ The server uses Bun’s native `fetch` handler and can run from:
 | `DELETE /group/:group_id` | Working |
 | `POST /clear` | Working |
 
+### MCP
+
+| Tool | Status |
+| --- | --- |
+| `add_memory` | Working |
+| `search_nodes` | Working |
+| `search_memory_facts` | Working |
+| `delete_entity_edge` | Working |
+| `delete_episode` | Working |
+| `get_entity_edge` | Working |
+| `get_episodes` | Working |
+| `clear_graph` | Working |
+| `get_status` | Working |
+
 ## Tests And Verification
 
 Use this exact clean verification flow:
@@ -383,31 +457,43 @@ rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
 
 Current status:
 
-- `159 pass`
+- `314 pass`
+- `42 skip` (integration tests without database connections)
 - `0 fail`
+- `656 expect() calls`
+- `356 tests across 34 files`
 
-Notable coverage:
+Test file inventory:
 
-- unit tests for shared validation
-- driver tests for Neo4j and FalkorDB
-- live Neo4j integration tests including ingest and temporal contradiction behavior
-- live Neo4j alias-propagation integration coverage
-- live Neo4j same-name disambiguation coverage using relationship context
-- live Neo4j attribute-history coverage for changing model-style fields
-- live Neo4j historical attribute non-regression coverage
-- live Neo4j configured string-set accumulation coverage
-- live Neo4j stateful string timestamp coverage
-- live Falkor integration tests for ingest and temporal contradiction behavior through the repo test env
-- live Falkor alias-propagation integration coverage
-- live Falkor same-name disambiguation coverage using relationship context
-- live Falkor attribute-history coverage for changing model-style fields
-- live Falkor historical attribute non-regression coverage
-- live Falkor configured string-set accumulation coverage
-- live Falkor stateful string timestamp coverage
-- search execution tests
-- ingestion extractor/resolver/hydrator tests
-- Graphiti orchestration tests
-- server route tests
+| Package | File | Tests | Type |
+| --- | --- | --- | --- |
+| core | `graphiti.test.ts` | 41 | Unit (orchestration) |
+| core | `extractor.test.ts` | 10 | Unit |
+| core | `hydrator.test.ts` | 26 | Unit |
+| core | `resolver.test.ts` | 4 | Unit |
+| core | `search.test.ts` | 8 | Unit |
+| core | `recipes.test.ts` | 3 | Unit |
+| core | `neo4j-driver.test.ts` | 2 | Unit |
+| core | `falkordb-driver.test.ts` | 5 | Unit |
+| core | `falkordb-search-operations.test.ts` | 3 | Unit |
+| core | `openai-client.test.ts` | 9 | Unit |
+| core | `openai-embedder.test.ts` | 5 | Unit |
+| core | `openai-reranker.test.ts` | 5 | Unit |
+| core | `neo4j-driver.integration.test.ts` | 21 | Integration (Neo4j) |
+| core | `falkordb-driver.integration.test.ts` | 20 | Integration (FalkorDB) |
+| server | `server.test.ts` | 9 | Unit |
+| server | `service.test.ts` | 3 | Unit |
+| shared | `validation.test.ts` | 5 | Unit |
+
+Notable integration coverage:
+
+- live Neo4j and FalkorDB ingest with temporal contradiction behavior
+- alias-propagation
+- same-name disambiguation via relationship context
+- attribute-history for model-style fields
+- historical attribute non-regression
+- configured string-set accumulation
+- stateful string timestamp tracking
 
 ## Important Environment Notes
 
@@ -445,7 +531,7 @@ This keeps reranker behavior shared across Neo4j and FalkorDB.
 
 ### 4. Ingestion Design
 
-Ingestion is being built around pluggable interfaces:
+Ingestion is built around pluggable interfaces:
 
 - `EpisodeExtractor`
 - `NodeHydrator`
@@ -454,126 +540,138 @@ This allows heuristic and model-backed implementations to coexist without rewrit
 
 ### 5. Server Design
 
-The TS server uses Bun’s native `fetch` handler instead of layering another web framework on top.
+The TS server uses Bun's native `fetch` handler instead of layering another web framework on top.
+
+### 6. MCP Design
+
+The MCP server uses `@modelcontextprotocol/sdk` with Zod schemas for tool parameter validation. All tools delegate to the `Graphiti` core client. Transport is stdio via `StdioServerTransport`.
 
 ## Remaining Gaps
 
-### Highest-Value Core Gaps
+### Gap Category 1: Missing Python Client Methods
 
-- no community nodes/edges support
-- no MCP implementation
-- limited higher-level entity/edge retrieval APIs beyond the current route needs
+These Python `Graphiti` methods have no TS equivalent:
 
-### Highest-Value Ingestion Gaps
+| Method | Complexity | Notes |
+| --- | --- | --- |
+| `add_episode_bulk()` | High | ~200 LOC bulk extraction/dedup pipeline |
+| `build_communities()` | High | Community detection + LLM summarization |
+| `remove_episode()` | Medium | Python version has cleanup logic (edge invalidation) |
+| `_get_or_create_saga()` | Medium | Saga node lifecycle |
+| `_extract_and_dedupe_nodes_bulk()` | Medium | Bulk dedup with LLM prompts |
+| `_resolve_nodes_and_edges_bulk()` | Medium | Bulk resolution pipeline |
 
-- better semantic entity linking and alias handling
-- richer attribute extraction beyond the current maintenance fields
-- community maintenance if community support is brought back into active scope
+### Gap Category 2: Missing Namespace Operations
 
-### Highest-Value Search Gaps
+Batch operations across all namespaces:
 
-- community search
-- broader parity with Python `search.py`
-- more complete non-community result-shape parity
-- live backend validation for newly exposed server search-filter combinations
+- `saveBulk()` — nodes.entity, nodes.episode, edges.entity, edges.episodic
+- `getByUuids()` — nodes.entity, nodes.episode, edges.entity
+- `deleteByUuids()` — nodes.entity, nodes.episode, edges.entity
+- `getByGroupIds()` — nodes.entity
 
-### Highest-Value Server Gaps
+Community and saga namespaces:
 
-- no packaging/deployment workflow for the TS server yet
+- `nodes.community` — entire namespace missing
+- `nodes.saga` — entire namespace missing
+- `edges.community` — entire namespace missing
+- `edges.hasEpisode` — entire namespace missing
+- `edges.nextEpisode` — entire namespace missing
 
-### MCP Gaps
+### Gap Category 3: Provider Coverage
 
-- still scaffold-only
-- no config port
-- no tool/resource/transport implementation
+Only OpenAI is implemented. Python supports 7 LLM providers, 4 embedder providers, and 3 reranker providers. The highest-value additions would be:
 
-## Recommended Next Steps
+1. Anthropic LLM client (most requested)
+2. Gemini LLM + embedder + reranker
+3. Azure OpenAI LLM + embedder (enterprise deployments)
 
-### Priority 1: Search Contract Parity
+### Gap Category 4: Community Graph Support
 
-Recommended next work:
+The entire community subsystem is absent:
 
-1. audit the remaining non-community TS search result shape against the Python `search.py` surface now that `/search` exposes `center_node_uuid` and structured filters
-2. implement the highest-value missing result fields or query controls that matter to server and future MCP consumers
-3. add live-backend validation for Neo4j and Falkor on the newly exposed server search-filter combinations
+- community node CRUD operations
+- community edge CRUD operations
+- community detection algorithm
+- community summarization via LLM
+- community search operations (configs exist, no backend operations)
 
-Why:
+### Gap Category 5: Advanced Ingestion
 
-- search execution and reranking are real, and the first server contract gap is now closed, but the returned shape and backend validation still lag Python more than the ingestion maintenance layer does
-- this stays inside already-active scope and avoids prematurely expanding into deferred community or MCP work
+- LLM-assisted node deduplication (Python has dedicated prompts)
+- LLM-assisted edge deduplication (Python has dedicated prompts)
+- content chunking (`graphiti_core/utils/content_chunking.py`)
+- temporal metadata extraction
+- semantic entity linking beyond name matching
 
-### Priority 2: Higher-Level Core API Parity
+### Gap Category 6: Infrastructure
 
-After the next search increment:
+- no packaging/deployment workflow for the TS server
+- no HTTP/streamable transport for MCP server
+- no async episode queue processing in MCP (Python processes per-group sequentially in background)
+- no token tracking or LLM response caching
+- no custom entity/edge type validation
 
-1. add the highest-value entity and edge retrieval helpers that Python exposes and the TS server or MCP layer will likely need next
-2. keep those helpers backed by the existing reusable operations instead of duplicating query logic
-3. validate behavior against both Neo4j and Falkor where the helper semantics are backend-sensitive
+## Python Operation Types Missing From TS Drivers
 
-### Priority 3: MCP Package
+Both Neo4j and FalkorDB Python drivers implement these additional operation modules that have no TS equivalent:
 
-After core/server are stronger:
-
-1. port config
-2. port transport and tool registration
-3. reuse the existing TS core rather than re-encoding domain logic there
+- `community_node_ops`
+- `community_edge_ops`
+- `saga_node_ops`
+- `has_episode_edge_ops`
+- `next_episode_edge_ops`
+- `graph_ops` (graph-level utilities)
 
 ## Proposed Milestones From Here
 
 ### Milestone A: Heuristic Ingestion Foundation
 
-Status:
-
-- done
-
-Done means:
-
-- raw-text episode ingest exists
-- extraction, resolution, hydration, and persistence are wired
-- conflicting edges can be invalidated
+Status: done
 
 ### Milestone B: Semantic Ingestion Foundation
 
-Status:
-
-- partially done
-
-Done means:
-
-- extracted names/facts can be enriched with embeddings
-- semantic resolution can reuse existing entities/edges when lexical matching is weak
+Status: done
 
 ### Milestone C: Model-Backed Ingestion
 
-Status:
-
-- in progress
-
-Done means:
-
-- non-heuristic extractor and hydrator implementations exist behind current interfaces
+Status: done
 
 ### Milestone D: Bulk And Maintenance Parity
 
-Status:
-
-- in progress
+Status: in progress
 
 Done means:
 
-- bulk ingest
-- stronger update semantics
+- bulk ingest (`addEpisodeBulk`)
+- LLM-assisted deduplication
 - community maintenance or an explicit decision to defer it
 
 ### Milestone E: MCP Port
 
-Status:
+Status: done
 
-- pending
+The MCP package implements all 9 tools from the Python server, with stdio transport. Tools delegate to the core `Graphiti` client. Dependencies: `@modelcontextprotocol/sdk`, `zod`.
+
+### Milestone F: Provider Parity
+
+Status: pending
 
 Done means:
 
-- MCP package is no longer scaffold-only
+- at least Anthropic and Gemini LLM clients
+- Gemini embedder
+- provider factory/registry pattern
+
+### Milestone G: Community Graph Support
+
+Status: pending
+
+Done means:
+
+- community node/edge CRUD
+- community detection
+- community search backed by real operations
 
 ## Known Risks
 
@@ -583,10 +681,10 @@ The TS core is real and usable, but it is still not full Python parity.
 
 Main risk areas:
 
-- ingestion sophistication
+- bulk ingestion sophistication
 - community logic
 - broader provider support
-- MCP support
+- LLM-assisted deduplication
 
 ### 2. Backend Drift
 
@@ -611,7 +709,7 @@ When resuming in a new context:
 4. inspect current package state:
 
 ```bash
-find packages -maxdepth 4 -type f | sort
+find packages -maxdepth 4 -type f -not -path '*/node_modules/*' -not -path '*/dist/*' | sort
 ```
 
 5. run clean verification:
@@ -622,9 +720,25 @@ rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
 ~/.bun/bin/bunx tsc -b --pretty false
 ```
 
-6. continue with the next milestone:
+6. continue with the next recommended task
 
-- recommended immediate target: non-community search result-shape parity plus live validation of exposed search filters
+## Recommended Next Steps
+
+### Priority 1: Batch Namespace Operations
+
+Add `getByUuids()` and `saveBulk()` across entity node, episode node, and entity edge namespaces. These are prerequisites for `addEpisodeBulk()` and for efficient `getNodesAndEdgesByEpisode()` (currently does N individual queries).
+
+### Priority 2: Additional LLM/Embedder Providers
+
+Add Anthropic LLM client and Gemini LLM + embedder. These unlock the TS port for non-OpenAI deployments and are straightforward to implement against the existing `LLMClient` / `EmbedderClient` interfaces.
+
+### Priority 3: Bulk Ingestion
+
+Port `addEpisodeBulk()` with the associated extraction and dedup helpers. This is the largest remaining core feature gap.
+
+### Priority 4: Community Graph
+
+Port community node/edge operations, detection algorithm, and search. This is a substantial subsystem.
 
 ## Files Most Worth Reading Next
 
@@ -635,34 +749,23 @@ rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
 - `packages/core/src/ingest/resolver.ts`
 - `packages/core/src/ingest/hydrator.ts`
 - `packages/core/src/search/search.ts`
+- `packages/core/src/search/filters.ts`
 - `packages/core/src/driver/neo4j-driver.ts`
 - `packages/core/src/driver/falkordb-driver.ts`
+- `packages/core/src/providers/llm/openai-client.ts`
 
 ### Server
 
 - `packages/server/src/app.ts`
 - `packages/server/src/service.ts`
 - `packages/server/src/server.test.ts`
-- `packages/server/src/start.ts`
+
+### MCP
+
+- `packages/mcp/src/server.ts`
+- `packages/mcp/src/config.ts`
 
 ### Planning
 
 - `spec/bun-typescript-port-plan.md`
 - `spec/typescript-port-prd.md`
-
-## Recommended Immediate Task For The Next Session
-
-Implement:
-
-- non-community search result-shape parity plus live validation of exposed search filters
-
-Suggested breakdown:
-
-1. compare the current TS `SearchConfig`, `SearchResults`, and server DTOs against the Python non-community search surface
-2. choose the highest-value missing result fields or query controls that affect current server or future MCP consumers
-3. implement those gaps in the TS core search layer first, then thread them through the server contract if needed
-4. add tests for result-shape merging, filter handling, and reranker score stability
-5. add backend coverage for server-exposed `center_node_uuid` and search-filter combinations where query behavior depends on Neo4j or Falkor execution
-6. run clean workspace verification
-
-That is the highest-value next step because the ingestion orchestration, maintenance semantics, and live backend validation surfaces are now materially stronger, the first server-facing search contract increment is in place, and the remaining visible gap inside active TS scope is search result-shape parity and backend-backed search validation rather than basic ingest correctness.
