@@ -9,8 +9,8 @@ import { createLLMConfig } from '../../llm/config';
 import type { Message } from '../../prompts/types';
 import { EmptyResponseError, RateLimitError } from '../errors';
 
-const DEFAULT_MODEL = 'gemini-2.5-flash';
-const DEFAULT_SMALL_MODEL = 'gemini-2.5-flash';
+const DEFAULT_MODEL = 'gemini-3-flash-preview';
+const DEFAULT_SMALL_MODEL = 'gemini-3-flash-preview';
 const MAX_RETRIES = 2;
 
 export interface GeminiClientOptions {

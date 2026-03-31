@@ -48,18 +48,18 @@ describe('GeminiClient', () => {
       model: createMockModel('')
     });
 
-    expect(client.model).toBe('gemini-2.5-flash');
-    expect(client.small_model).toBe('gemini-2.5-flash');
+    expect(client.model).toBe('gemini-3-flash-preview');
+    expect(client.small_model).toBe('gemini-3-flash-preview');
   });
 
   test('uses configured model names', () => {
     const client = new GeminiClient({
-      config: { model: 'gemini-2.5-pro', small_model: 'gemini-2.5-flash' },
+      config: { model: 'gemini-2.5-pro', small_model: 'gemini-3-flash-preview' },
       model: createMockModel('')
     });
 
     expect(client.model).toBe('gemini-2.5-pro');
-    expect(client.small_model).toBe('gemini-2.5-flash');
+    expect(client.small_model).toBe('gemini-3-flash-preview');
   });
 
   test('converts system messages to systemInstruction', async () => {

@@ -105,7 +105,7 @@ There is now a functioning TS core with:
 - an MCP server with all 9 tools ported from Python
 - OpenAI providers for LLM, embedder, and cross-encoder
 - Anthropic LLM provider (claude-sonnet-4-6-latest default)
-- Gemini LLM provider (gemini-2.5-flash default) and embedder (text-embedding-004)
+- Gemini LLM provider (gemini-3-flash-preview default) and embedder (text-embedding-004)
 
 ## Implemented Today
 
@@ -776,7 +776,7 @@ Added `saveBulk()`, `getByUuids()`, and `getByGroupIds()` across entity node, ep
 
 ### Core LLM/Embedder Providers (done)
 
-Added AnthropicClient (claude-sonnet-4-6-latest), GeminiClient (gemini-2.5-flash), and GeminiEmbedder (text-embedding-004). All implement the existing LLMClient/EmbedderClient interfaces with retry logic, rate limit handling, and tracer integration. 21 unit tests.
+Added AnthropicClient (claude-sonnet-4-6-latest), GeminiClient (gemini-3-flash-preview), and GeminiEmbedder (text-embedding-004). All implement the existing LLMClient/EmbedderClient interfaces with retry logic, rate limit handling, and tracer integration. 21 unit tests.
 
 ## Files Most Worth Reading Next
 
