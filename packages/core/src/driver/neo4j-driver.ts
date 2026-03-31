@@ -326,11 +326,62 @@ class Neo4jTransactionAdapter implements AsyncDisposableTransaction {
   }
 }
 
+function normalizeNeo4jValue(value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (typeof value === 'object' && value !== null && 'low' in value && 'high' in value) {
+    const neo4jInt = value as { low: number; high: number; toNumber?: () => number };
+    return typeof neo4jInt.toNumber === 'function' ? neo4jInt.toNumber() : neo4jInt.low;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(normalizeNeo4jValue);
+  }
+
+  if (typeof value === 'string' && value.length >= 2) {
+    const first = value[0];
+    const last = value[value.length - 1];
+    if ((first === '{' && last === '}') || (first === '[' && last === ']')) {
+      try {
+        return JSON.parse(value);
+      } catch {
+        // Not valid JSON — return as string
+      }
+    }
+  }
+
+  return value;
+}
+
+function recordToPlainObject(record: unknown): Record<string, unknown> {
+  const rec = record as { keys?: string[]; get?: (key: string) => unknown; _fields?: unknown[]; _fieldLookup?: Record<string, number> };
+
+  if (rec.keys && typeof rec.get === 'function') {
+    const obj: Record<string, unknown> = {};
+    for (const key of rec.keys) {
+      obj[key] = normalizeNeo4jValue(rec.get(key));
+    }
+    return obj;
+  }
+
+  if (rec._fields && rec._fieldLookup) {
+    const obj: Record<string, unknown> = {};
+    for (const [key, index] of Object.entries(rec._fieldLookup)) {
+      obj[key] = normalizeNeo4jValue(rec._fields[index]);
+    }
+    return obj;
+  }
+
+  return record as Record<string, unknown>;
+}
+
 function normalizeEagerResult<RecordShape>(
   result: EagerResult
 ): QueryResult<RecordShape> {
   return {
-    records: result.records as RecordShape[],
+    records: result.records.map((record) => recordToPlainObject(record)) as RecordShape[],
     summary: result.summary,
     keys: result.keys
   };
@@ -340,7 +391,7 @@ function normalizeSessionResult<RecordShape>(
   result: OfficialQueryResult<Record<string, unknown>>
 ): QueryResult<RecordShape> {
   return {
-    records: result.records as RecordShape[],
+    records: result.records.map((record) => recordToPlainObject(record)) as RecordShape[],
     summary: result.summary
   };
 }
