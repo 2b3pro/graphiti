@@ -10,6 +10,9 @@ import type {
   GraphitiClients,
   LLMClient
 } from './contracts';
+import { OpenAIClient } from './providers/llm/openai-client';
+import { OpenAIEmbedder } from './providers/embedder/openai-embedder';
+import { OpenAIRerankerClient } from './providers/reranker/openai-reranker';
 import type { EntityEdge } from './domain/edges';
 import type { EntityNode, EpisodicNode } from './domain/nodes';
 import {
@@ -102,9 +105,12 @@ export class Graphiti {
 
   constructor(options: GraphitiOptions) {
     this.driver = options.driver;
-    this.llm_client = options.llm_client ?? null;
-    this.embedder = options.embedder ?? null;
-    this.cross_encoder = options.cross_encoder ?? null;
+    this.llm_client =
+      options.llm_client === undefined ? createDefaultLLMClient() : options.llm_client;
+    this.embedder =
+      options.embedder === undefined ? createDefaultEmbedder() : options.embedder;
+    this.cross_encoder =
+      options.cross_encoder === undefined ? createDefaultReranker() : options.cross_encoder;
     this.episode_extractor =
       options.episode_extractor ??
       (this.llm_client
@@ -432,4 +438,28 @@ export class Graphiti {
       this.cross_encoder
     );
   }
+}
+
+function hasOpenAIKey(): boolean {
+  try {
+    return (
+      typeof process !== 'undefined' &&
+      typeof process.env?.OPENAI_API_KEY === 'string' &&
+      process.env.OPENAI_API_KEY !== ''
+    );
+  } catch {
+    return false;
+  }
+}
+
+function createDefaultLLMClient(): LLMClient | null {
+  return hasOpenAIKey() ? new OpenAIClient() : null;
+}
+
+function createDefaultEmbedder(): EmbedderClient | null {
+  return hasOpenAIKey() ? new OpenAIEmbedder() : null;
+}
+
+function createDefaultReranker(): CrossEncoderClient | null {
+  return hasOpenAIKey() ? new OpenAIRerankerClient() : null;
 }

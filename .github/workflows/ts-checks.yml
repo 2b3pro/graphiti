@@ -1,0 +1,70 @@
+name: TypeScript Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bunx tsc -b
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - name: Run unit tests (no external dependencies)
+        run: bun test packages --grep-invert integration
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    services:
+      neo4j:
+        image: neo4j:5.26-community
+        ports:
+          - 7687:7687
+          - 7474:7474
+        env:
+          NEO4J_AUTH: neo4j/testpass
+          NEO4J_PLUGINS: '["apoc"]'
+        options: --health-cmd "cypher-shell -u neo4j -p testpass 'RETURN 1'" --health-interval 10s --health-timeout 5s --health-retries 10
+      falkordb:
+        image: falkordb/falkordb:latest
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - name: Wait for Neo4j
+        run: timeout 60 bash -c 'until wget -qO- http://localhost:7474 >/dev/null 2>&1; do sleep 1; done'
+      - name: Wait for FalkorDB
+        run: timeout 60 bash -c 'until redis-cli -h localhost -p 6379 ping >/dev/null 2>&1; do sleep 1; done'
+      - name: Run integration tests
+        env:
+          NEO4J_URI: bolt://localhost:7687
+          NEO4J_USER: neo4j
+          NEO4J_PASSWORD: testpass
+          FALKOR_HOST: localhost
+          FALKOR_PORT: "6379"
+        run: |
+          bun test packages/core/src/driver/neo4j-driver.integration.test.ts
+          bun test packages/core/src/driver/falkordb-driver.integration.test.ts

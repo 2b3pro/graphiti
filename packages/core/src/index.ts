@@ -32,5 +32,6 @@ export * from './search/filters';
 export * from './search/search';
 export * from './search/recipes';
 export * from './tracing';
+export * from './providers';
 export * from './utils/records';
 export * from './utils/serialization';
