@@ -77,7 +77,8 @@ export * from './utils/content-chunking';
 export * from './utils/entity-types';
 export * from './utils/concurrency';
 export * from './llm/language';
-export { cleanInput, generateResponse } from './llm/generate-response';
+export { cleanInput, generateResponse, type GenerateResponseContext } from './llm/generate-response';
+export { needsMultiGroupRouting, executeWithMultiGroupRouting } from './utils/multi-group';
 export {
   extractNodes,
   resolveExtractedNodes,

@@ -12,7 +12,7 @@
 import { utcNow } from '@graphiti/shared';
 
 import type { GraphitiClients, LLMClient, EmbedderClient, GenerateResponseOptions } from '../contracts';
-import { generateResponse as defaultGenerateResponse } from '../llm/generate-response';
+import { generateResponse as defaultGenerateResponse, type GenerateResponseContext } from '../llm/generate-response';
 import type { EntityEdge, EpisodicEdge } from '../domain/edges';
 import type { EntityNode, EpisodicNode } from '../domain/nodes';
 import { promptLibrary } from '../prompts/lib';
@@ -24,16 +24,25 @@ import { normalizeStringExact } from '../dedup/dedup-helpers';
 import { semaphoreGather } from '../utils/concurrency';
 import type { EntityTypeDefinition } from './node-operations';
 
+/** Build a GenerateResponseContext from GraphitiClients. */
+function buildEdgeContext(clients: GraphitiClients): GenerateResponseContext {
+  return {
+    tokenTracker: clients.tokenTracker ?? null,
+    cache: clients.cache ?? null
+  };
+}
+
 /** Call generateResponse on the client, falling back to default implementation if not provided. */
 async function callGenerateResponse(
   client: LLMClient,
   messages: import('../prompts/types').Message[],
-  options?: GenerateResponseOptions
+  options?: GenerateResponseOptions,
+  context?: GenerateResponseContext
 ): Promise<Record<string, unknown>> {
   if (client.generateResponse) {
-    return client.generateResponse(messages, options);
+    return client.generateResponse(messages, options, context);
   }
-  return defaultGenerateResponse(client, messages, options);
+  return defaultGenerateResponse(client, messages, options, context);
 }
 
 // -------------------------------------------------------------------------
@@ -120,7 +129,8 @@ export async function extractEdges(
       max_tokens: 16384,
       group_id: groupId,
       prompt_name: 'extract_edges.edge'
-    }
+    },
+    buildEdgeContext(clients)
   );
 
   const allEdgesData: ExtractedEdge[] =
@@ -264,6 +274,7 @@ export async function resolveExtractedEdges(
   }
 
   // Resolve each edge
+  const edgeCtx = buildEdgeContext(clients);
   const results = await semaphoreGather(
     deduplicatedEdges.map(
       (extractedEdge, i) => () =>
@@ -273,7 +284,8 @@ export async function resolveExtractedEdges(
           relatedEdgesLists[i]!,
           edgeInvalidationCandidates[i]!,
           episode,
-          edgeTypes
+          edgeTypes,
+          edgeCtx
         )
     )
   );
@@ -312,14 +324,15 @@ export async function resolveExtractedEdge(
   relatedEdges: EntityEdge[],
   existingEdges: EntityEdge[],
   episode: EpisodicNode,
-  edgeTypeCandidates?: Record<string, EdgeTypeDefinition> | null
+  edgeTypeCandidates?: Record<string, EdgeTypeDefinition> | null,
+  llmContext?: GenerateResponseContext
 ): Promise<[EntityEdge, EntityEdge[]]> {
   // No related or existing edges — extract attributes if applicable and return
   if (relatedEdges.length === 0 && existingEdges.length === 0) {
     if (edgeTypeCandidates?.[extractedEdge.name]?.fields) {
       const fields = edgeTypeCandidates[extractedEdge.name]!.fields!;
       if (Object.keys(fields).length > 0) {
-        const attrs = await extractEdgeAttributes(llmClient, extractedEdge, episode, fields);
+        const attrs = await extractEdgeAttributes(llmClient, extractedEdge, episode, fields, llmContext);
         extractedEdge.attributes = attrs;
       }
     }
@@ -368,7 +381,8 @@ export async function resolveExtractedEdge(
       },
       model_size: 'small',
       prompt_name: 'dedupe_edges.resolve_edge'
-    }
+    },
+    llmContext
   );
 
   const responseObject = llmResponse as unknown as EdgeDuplicate;
@@ -406,7 +420,7 @@ export async function resolveExtractedEdge(
   if (edgeTypeCandidates?.[resolvedEdge.name]?.fields) {
     const fields = edgeTypeCandidates[resolvedEdge.name]!.fields!;
     if (Object.keys(fields).length > 0) {
-      const attrs = await extractEdgeAttributes(llmClient, resolvedEdge, episode, fields);
+      const attrs = await extractEdgeAttributes(llmClient, resolvedEdge, episode, fields, llmContext);
       resolvedEdge.attributes = attrs;
     }
   } else {
@@ -467,7 +481,8 @@ async function extractEdgeAttributes(
   llmClient: LLMClient,
   edge: EntityEdge,
   episode: EpisodicNode,
-  schema: Record<string, unknown>
+  schema: Record<string, unknown>,
+  llmContext?: GenerateResponseContext
 ): Promise<Record<string, unknown>> {
   const context = {
     fact: edge.fact,
@@ -481,7 +496,8 @@ async function extractEdgeAttributes(
       response_model: schema,
       model_size: 'small',
       prompt_name: 'extract_edges.extract_attributes'
-    }
+    },
+    llmContext
   );
 }
 

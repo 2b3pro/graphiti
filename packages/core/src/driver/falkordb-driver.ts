@@ -15,12 +15,20 @@ import { FalkorEpisodicEdgeOperations } from './falkordb/falkordb-episodic-edge-
 import { FalkorCommunityEdgeOperations } from './falkordb/falkordb-community-edge-operations';
 import { FalkorCommunityNodeOperations } from './falkordb/falkordb-community-node-operations';
 import { FalkorSearchOperations } from './falkordb/falkordb-search-operations';
+import { FalkorSagaNodeOperations } from './falkordb/falkordb-saga-node-operations';
+import { FalkorHasEpisodeEdgeOperations } from './falkordb/falkordb-has-episode-edge-operations';
+import { FalkorNextEpisodeEdgeOperations } from './falkordb/falkordb-next-episode-edge-operations';
+import { FalkorGraphMaintenanceOperations } from './falkordb/falkordb-graph-maintenance-operations';
 import type { CommunityEdgeOperations } from './operations/community-edge-operations';
 import type { CommunityNodeOperations } from './operations/community-node-operations';
 import type { EntityEdgeOperations } from './operations/entity-edge-operations';
 import type { EntityNodeOperations } from './operations/entity-node-operations';
 import type { EpisodeNodeOperations } from './operations/episode-node-operations';
 import type { EpisodicEdgeOperations } from './operations/episodic-edge-operations';
+import type { SagaNodeOperations } from './operations/saga-node-operations';
+import type { HasEpisodeEdgeOperations } from './operations/has-episode-edge-operations';
+import type { NextEpisodeEdgeOperations } from './operations/next-episode-edge-operations';
+import type { GraphMaintenanceOperations } from './operations/graph-maintenance-operations';
 import type { SearchOperations } from './operations/search-operations';
 
 export interface FalkorConnectionConfig {
@@ -69,6 +77,10 @@ export class FalkorDriver extends BaseGraphDriver {
   readonly entityEdgeOps: EntityEdgeOperations;
   readonly episodeNodeOps: EpisodeNodeOperations;
   readonly episodicEdgeOps: EpisodicEdgeOperations;
+  readonly sagaNodeOps: SagaNodeOperations;
+  readonly hasEpisodeEdgeOps: HasEpisodeEdgeOperations;
+  readonly nextEpisodeEdgeOps: NextEpisodeEdgeOperations;
+  readonly graphOps: GraphMaintenanceOperations;
   readonly searchOps: SearchOperations;
 
   constructor(config: FalkorConnectionConfig, client: FalkorClientAdapter) {
@@ -84,6 +96,10 @@ export class FalkorDriver extends BaseGraphDriver {
     this.entityEdgeOps = new FalkorEntityEdgeOperations();
     this.episodeNodeOps = new FalkorEpisodeNodeOperations();
     this.episodicEdgeOps = new FalkorEpisodicEdgeOperations();
+    this.sagaNodeOps = new FalkorSagaNodeOperations();
+    this.hasEpisodeEdgeOps = new FalkorHasEpisodeEdgeOperations();
+    this.nextEpisodeEdgeOps = new FalkorNextEpisodeEdgeOperations();
+    this.graphOps = new FalkorGraphMaintenanceOperations();
     this.searchOps = new FalkorSearchOperations();
   }
 
@@ -115,6 +131,20 @@ export class FalkorDriver extends BaseGraphDriver {
 
   async transaction(): Promise<AsyncDisposableTransaction> {
     return new FalkorTransactionAdapter(this.session());
+  }
+
+  /**
+   * Clone the driver with a different database name, reusing the same connection.
+   * Port of Python's FalkorDriver.clone().
+   */
+  clone(database: string): FalkorDriver {
+    if (database === this.database) {
+      return this;
+    }
+    return new FalkorDriver(
+      { ...this.config, database },
+      this.client
+    );
   }
 
   async close(): Promise<void> {

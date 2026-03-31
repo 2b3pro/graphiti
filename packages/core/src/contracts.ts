@@ -70,10 +70,13 @@ export interface LLMClient {
    *
    * If not implemented by a provider, the default implementation wraps
    * generateText() with JSON parsing.
+   *
+   * @param context - Optional context for token tracking and response caching.
    */
   generateResponse?(
     messages: Message[],
-    options?: GenerateResponseOptions
+    options?: GenerateResponseOptions,
+    context?: import('./llm/generate-response').GenerateResponseContext
   ): Promise<Record<string, unknown>>;
 }
 
@@ -92,6 +95,10 @@ export interface GraphitiClients {
   embedder: EmbedderClient;
   cross_encoder: CrossEncoderClient;
   tracer: Tracer;
+  /** Token usage tracker for recording per-prompt usage. */
+  tokenTracker?: import('./llm/token-tracker').TokenUsageTracker | null;
+  /** LLM response cache for deduplicating calls. */
+  cache?: import('./llm/cache').LLMCache | null;
 }
 
 export interface QueryOptions {

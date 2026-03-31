@@ -10,7 +10,7 @@
 import { utcNow } from '@graphiti/shared';
 
 import type { GraphitiClients, LLMClient, GenerateResponseOptions } from '../contracts';
-import { generateResponse as defaultGenerateResponse } from '../llm/generate-response';
+import { generateResponse as defaultGenerateResponse, type GenerateResponseContext } from '../llm/generate-response';
 import type { EntityEdge } from '../domain/edges';
 import type { EntityNode, EpisodicNode, EpisodeType } from '../domain/nodes';
 import { EpisodeTypes } from '../domain/nodes';
@@ -38,16 +38,25 @@ import { truncateAtSentence, MAX_SUMMARY_CHARS } from '../utils/text';
 
 const MAX_NODES = 30;
 
+/** Build a GenerateResponseContext from GraphitiClients. */
+function buildContext(clients: GraphitiClients): GenerateResponseContext {
+  return {
+    tokenTracker: clients.tokenTracker ?? null,
+    cache: clients.cache ?? null
+  };
+}
+
 /** Call generateResponse on the client, falling back to default implementation if not provided. */
 async function callGenerateResponse(
   client: LLMClient,
   messages: import('../prompts/types').Message[],
-  options?: GenerateResponseOptions
+  options?: GenerateResponseOptions,
+  context?: GenerateResponseContext
 ): Promise<Record<string, unknown>> {
   if (client.generateResponse) {
-    return client.generateResponse(messages, options);
+    return client.generateResponse(messages, options, context);
   }
-  return defaultGenerateResponse(client, messages, options);
+  return defaultGenerateResponse(client, messages, options, context);
 }
 
 // -------------------------------------------------------------------------
@@ -135,7 +144,7 @@ export async function extractNodes(
     response_model: { type: 'object', properties: { extracted_entities: { type: 'array' } } },
     group_id: episode.group_id,
     prompt_name: promptName
-  });
+  }, buildContext(clients));
 
   const extractedEntities = (llmResponse as unknown as ExtractedEntities).extracted_entities ?? [];
 
@@ -232,7 +241,8 @@ export async function resolveExtractedNodes(
     state,
     episode ?? null,
     previousEpisodes ?? null,
-    entityTypes ?? null
+    entityTypes ?? null,
+    buildContext(clients)
   );
 
   // Fill in any remaining unresolved nodes
@@ -293,7 +303,8 @@ async function resolveWithLlm(
   state: DedupResolutionState,
   episode: EpisodicNode | null,
   previousEpisodes: EpisodicNode[] | null,
-  entityTypes: Record<string, EntityTypeDefinition> | null
+  entityTypes: Record<string, EntityTypeDefinition> | null,
+  llmContext?: GenerateResponseContext
 ): Promise<void> {
   if (state.unresolvedIndices.length === 0) return;
 
@@ -335,7 +346,8 @@ async function resolveWithLlm(
         properties: { entity_resolutions: { type: 'array' } }
       },
       prompt_name: 'dedupe_nodes.nodes'
-    }
+    },
+    llmContext
   );
 
   const nodeResolutions: NodeDuplicate[] =
@@ -403,6 +415,7 @@ export async function extractAttributesFromNodes(
   }
 
   // Extract attributes in parallel (per-entity calls)
+  const ctx = buildContext(clients);
   const attributeResults = await semaphoreGather(
     nodes.map(
       (node) => () =>
@@ -411,7 +424,8 @@ export async function extractAttributesFromNodes(
           node,
           episode ?? null,
           previousEpisodes ?? null,
-          entityTypes?.[node.labels.find((l) => l !== 'Entity') ?? ''] ?? null
+          entityTypes?.[node.labels.find((l) => l !== 'Entity') ?? ''] ?? null,
+          ctx
         )
     )
   );
@@ -431,7 +445,8 @@ export async function extractAttributesFromNodes(
     nodes,
     episode ?? null,
     previousEpisodes ?? null,
-    edgesByNode
+    edgesByNode,
+    ctx
   );
 
   // Generate embeddings
@@ -453,7 +468,8 @@ async function extractEntityAttributes(
   node: EntityNode,
   episode: EpisodicNode | null,
   previousEpisodes: EpisodicNode[] | null,
-  entityType: EntityTypeDefinition | null
+  entityType: EntityTypeDefinition | null,
+  llmContext?: GenerateResponseContext
 ): Promise<Record<string, unknown>> {
   if (!entityType || !entityType.fields || Object.keys(entityType.fields).length === 0) {
     return {};
@@ -476,7 +492,8 @@ async function extractEntityAttributes(
       model_size: 'small',
       group_id: node.group_id,
       prompt_name: 'extract_nodes.extract_attributes'
-    }
+    },
+    llmContext
   );
 
   return llmResponse;
@@ -487,7 +504,8 @@ async function extractEntitySummariesBatch(
   nodes: EntityNode[],
   episode: EpisodicNode | null,
   previousEpisodes: EpisodicNode[] | null,
-  edgesByNode: Map<string, EntityEdge[]>
+  edgesByNode: Map<string, EntityEdge[]>,
+  llmContext?: GenerateResponseContext
 ): Promise<void> {
   const nodesNeedingLlm: EntityNode[] = [];
 
@@ -525,7 +543,7 @@ async function extractEntitySummariesBatch(
 
   await semaphoreGather(
     flights.map(
-      (flight) => () => processSummaryFlight(llmClient, flight, episode, previousEpisodes)
+      (flight) => () => processSummaryFlight(llmClient, flight, episode, previousEpisodes, llmContext)
     )
   );
 }
@@ -534,7 +552,8 @@ async function processSummaryFlight(
   llmClient: LLMClient,
   nodes: EntityNode[],
   episode: EpisodicNode | null,
-  previousEpisodes: EpisodicNode[] | null
+  previousEpisodes: EpisodicNode[] | null,
+  llmContext?: GenerateResponseContext
 ): Promise<void> {
   const entitiesContext = nodes.map((node) => ({
     name: node.name,
@@ -558,7 +577,8 @@ async function processSummaryFlight(
       model_size: 'small',
       group_id: groupId,
       prompt_name: 'extract_nodes.extract_summaries_batch'
-    }
+    },
+    llmContext
   );
 
   // Build name lookup

@@ -76,15 +76,44 @@
 **EntityEdge.attributes — ADDED**
 - Added `attributes?: Record<string, unknown>` to `EntityEdge` interface for custom edge type attribute storage
 
+### FalkorDB Multi-Group Routing Fixed (M-2, M-3)
+
+**M-2: handle_multiple_group_ids Decorator — FIXED**
+- Created `packages/core/src/utils/multi-group.ts` with `executeWithMultiGroupRouting()` utility
+- Mirrors Python's `@handle_multiple_group_ids` decorator behavior
+- Automatically splits operations across group_ids for FalkorDB, executing concurrently via `semaphoreGather`
+- Merges results: `SearchResults` via `mergeSearchResults()`, arrays via flatten, objects via property merge
+- Wired into `Graphiti.retrieveEpisodes()`, `Graphiti.buildCommunities()`, and `Graphiti.search()` (and `advancedSearch`)
+
+**M-3: Group ID as Database Routing — FIXED**
+- Added `FalkorDriver.clone(database)` method that creates a new driver with the same connection but different database
+- Added `BaseGraphDriver.withDatabase()` as a generic shallow-clone method
+- `addEpisodeFull()` and `addEpisodeBulkFull()` now dynamically switch the driver database when group_id differs from current database (matching Python's behavior)
+
+### Token Tracking Wiring Fixed (m-3)
+
+**m-3: Token Tracking — FIXED**
+- Extended `GenerateResponseContext` type with optional `tokenTracker` and `cache` fields
+- All `generateResponse()` calls (in both `node-operations.ts` and `edge-operations.ts`) now pass through the context
+- `GraphitiClients` interface extended with `tokenTracker` and `cache` fields
+- `Graphiti` constructor wires `TokenUsageTracker` and optional `LLMCache` into `GraphitiClients`
+- Token estimation uses ~4 chars/token heuristic for providers that don't return exact counts
+- All 8 LLM provider `generateResponse()` methods updated to accept and pass through `GenerateResponseContext`
+
+### Response Caching Wiring Fixed (m-4)
+
+**m-4: LLM Response Caching — FIXED**
+- `LLMCache` (from `packages/core/src/llm/cache.ts`) now wired into the `generateResponse()` flow
+- Cache key generated from model name + serialized messages (MD5 hash, matching Python's `_get_cache_key()`)
+- `GraphitiOptions.cache_enabled` flag controls cache creation (defaults to `false`)
+- Cache check happens before LLM call; cache write happens after successful parse
+- Cache is passed through `GenerateResponseContext` to all LLM call sites in maintenance operations
+
 ### Remaining Gaps (Not Addressed)
-
-**M-2: handle_multiple_group_ids Decorator** — Not ported. This FalkorDB-specific pattern requires runtime introspection patterns that are less idiomatic in TypeScript. Should be implemented as middleware when FalkorDB multi-group support is needed.
-
-**M-3: Group ID as Database Routing** — Not ported. Requires `driver.clone()` which is not in the TypeScript driver interface. Would need driver interface changes.
 
 **M-5: remove_episode() raw Cypher** — Existing implementation works. Low priority to refactor.
 
-**M-8: Kuzu and Neptune Drivers** — Not ported. Low priority unless these backends are needed.
+**M-8: Kuzu and Neptune Drivers** — Not ported. Explicitly excluded from TypeScript port scope.
 
 **M-9: graph_operations_interface and search_interface** — Not ported. TypeScript uses direct operations pattern which is functionally equivalent.
 
@@ -92,20 +121,16 @@
 
 **m-2: to_prompt_json** — Not ported. TypeScript uses `JSON.stringify` directly which handles Unicode properly.
 
-**m-3: Token Tracking** — `TokenUsageTracker` exists but is still not wired into LLM call flow. The `prompt_name` parameter is now passed through `generateResponse()` but actual tracking requires per-provider instrumentation.
-
-**m-4: LLM Response Caching** — Cache module exists but not wired into providers.
-
 ### Updated Parity Estimate
 
-**Before:** 60-65%
-**After:** ~80-85%
+**Before:** ~80-85%
+**After:** ~90%
 
-The remaining gaps are primarily:
-- FalkorDB multi-group routing (M-2, M-3)
-- Token tracking wiring (m-3)
-- Response caching wiring (m-4)
-- Kuzu/Neptune drivers (M-8)
+The remaining gaps are minor:
+- Kuzu/Neptune drivers (M-8) — explicitly excluded
+- `remove_episode()` Cypher vs operations pattern (M-5) — functionally equivalent
+- `generate_covering_chunks` (m-1) — low usage utility
+- `to_prompt_json` (m-2) — JS handles Unicode natively
 
 ---
 

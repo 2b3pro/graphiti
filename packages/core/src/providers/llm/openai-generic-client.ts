@@ -13,7 +13,7 @@ import { NoOpTracer } from '../../tracing';
 import type { LLMConfig } from '../../llm/config';
 import { createLLMConfig } from '../../llm/config';
 import type { Message } from '../../prompts/types';
-import { generateResponse } from '../../llm/generate-response';
+import { generateResponse, type GenerateResponseContext } from '../../llm/generate-response';
 import { EmptyResponseError, RateLimitError, RefusalError } from '../errors';
 
 const DEFAULT_MODEL = 'gpt-4.1-mini';
@@ -118,8 +118,9 @@ export class OpenAIGenericClient implements LLMClient {
 
   async generateResponse(
     messages: Message[],
-    options?: GenerateResponseOptions
+    options?: GenerateResponseOptions,
+    context?: GenerateResponseContext
   ): Promise<Record<string, unknown>> {
-    return generateResponse(this, messages, options);
+    return generateResponse(this, messages, options, context);
   }
 }

@@ -5,6 +5,7 @@ import { createEdgeNamespace, type EdgeNamespaceApi } from './namespaces/edges';
 import { createNodeNamespace, type NodeNamespaceApi } from './namespaces/nodes';
 import { createTracer, NoOpTracer, type Tracer } from './tracing';
 import { TokenUsageTracker } from './llm/token-tracker';
+import { LLMCache } from './llm/cache';
 import type {
   CrossEncoderClient,
   EmbedderClient,
@@ -49,6 +50,8 @@ import { createSearchFilters, type SearchFilters } from './search/filters';
 import { EDGE_HYBRID_SEARCH_NODE_DISTANCE, EDGE_HYBRID_SEARCH_RRF } from './search/recipes';
 import { search } from './search/search';
 import { semaphoreGather } from './utils/concurrency';
+import { needsMultiGroupRouting, executeWithMultiGroupRouting } from './utils/multi-group';
+import { FalkorDriver } from './driver/falkordb-driver';
 import { captureEvent } from './telemetry';
 import {
   extractNodes,
@@ -84,6 +87,8 @@ export interface GraphitiOptions {
   store_raw_episode_content?: boolean;
   /** Maximum number of concurrent operations. Defaults to 20. */
   max_coroutines?: number;
+  /** Enable LLM response caching. Defaults to false. */
+  cache_enabled?: boolean;
 }
 
 export interface AddTripletInput {
@@ -208,6 +213,7 @@ export class Graphiti {
   readonly edges: EdgeNamespaceApi;
   readonly communities: CommunityNamespaceApi;
   readonly tokenTracker: TokenUsageTracker;
+  readonly llmCache: LLMCache | null;
   readonly store_raw_episode_content: boolean;
   readonly max_coroutines: number | null;
 
@@ -234,6 +240,7 @@ export class Graphiti {
     this.edges = createEdgeNamespace(this.driver, this.embedder);
     this.communities = createCommunityNamespace(this.driver, this.embedder);
     this.tokenTracker = new TokenUsageTracker();
+    this.llmCache = options.cache_enabled ? new LLMCache() : null;
     this.store_raw_episode_content = options.store_raw_episode_content ?? true;
     this.max_coroutines = options.max_coroutines ?? null;
     this.clients =
@@ -243,7 +250,9 @@ export class Graphiti {
             llm_client: this.llm_client,
             embedder: this.embedder,
             cross_encoder: this.cross_encoder,
-            tracer: this.tracer
+            tracer: this.tracer,
+            tokenTracker: this.tokenTracker,
+            cache: this.llmCache
           }
         : null;
 
@@ -564,6 +573,14 @@ export class Graphiti {
     const now = utcNow();
     const groupId = input.group_id ?? this.driver.default_group_id;
 
+    // FalkorDB: route to the correct database based on group_id
+    if (this.driver instanceof FalkorDriver && groupId !== this.driver.database) {
+      this.driver = this.driver.clone(groupId);
+      if (this.clients) {
+        this.clients.driver = this.driver;
+      }
+    }
+
     const scope = this.tracer.startSpan('add_episode');
     try {
       // Retrieve or create episode
@@ -727,6 +744,14 @@ export class Graphiti {
 
     const now = utcNow();
     const groupId = input.group_id ?? this.driver.default_group_id;
+
+    // FalkorDB: route to the correct database based on group_id
+    if (this.driver instanceof FalkorDriver && groupId !== this.driver.database) {
+      this.driver = this.driver.clone(groupId);
+      if (this.clients) {
+        this.clients.driver = this.driver;
+      }
+    }
 
     const scope = this.tracer.startSpan('add_episode_bulk');
     scope.span.addAttributes({ 'episode.count': input.bulk_episodes.length });
@@ -1227,6 +1252,18 @@ export class Graphiti {
     lastN = 10,
     referenceTime?: Date | null
   ): Promise<EpisodicNode[]> {
+    // FalkorDB multi-group routing: execute per group_id with cloned driver
+    if (needsMultiGroupRouting(this.driver, groupIds)) {
+      return executeWithMultiGroupRouting(
+        this.driver,
+        groupIds,
+        async (driver, singleGroupIds) => {
+          // Use the episode namespace with the cloned driver's database
+          return this.nodes.episode.getByGroupIds(singleGroupIds, lastN, referenceTime);
+        },
+        this.max_coroutines
+      );
+    }
     return this.nodes.episode.getByGroupIds(groupIds, lastN, referenceTime);
   }
 
@@ -1335,11 +1372,29 @@ export class Graphiti {
       throw new Error('LLM client is required for building communities');
     }
 
+    // FalkorDB multi-group routing
+    if (needsMultiGroupRouting(this.driver, groupIds)) {
+      return executeWithMultiGroupRouting(
+        this.driver,
+        groupIds!,
+        async (_driver, singleGroupIds) => {
+          return this._buildCommunitiesForGroups(singleGroupIds);
+        },
+        this.max_coroutines
+      );
+    }
+
+    return this._buildCommunitiesForGroups(groupIds);
+  }
+
+  private async _buildCommunitiesForGroups(
+    groupIds: string[] | null
+  ): Promise<{ nodes: import('./domain/nodes').CommunityNode[]; edges: import('./domain/edges').CommunityEdge[] }> {
     await removeCommunities(this.driver);
 
     const [communityNodes, communityEdges] = await buildCommunitiesOp(
       this.driver,
-      this.llm_client,
+      this.llm_client!,
       this.nodes.entity,
       groupIds
     );
@@ -1464,6 +1519,32 @@ export class Graphiti {
     config: SearchConfig,
     options: GraphitiSearchOptions = {}
   ): Promise<SearchResults> {
+    // FalkorDB multi-group routing
+    if (needsMultiGroupRouting(this.driver, options.group_ids)) {
+      return executeWithMultiGroupRouting(
+        this.driver,
+        options.group_ids!,
+        async (driver, singleGroupIds) => {
+          return this._executeSearch(
+            driver,
+            query,
+            config,
+            { ...options, group_ids: singleGroupIds }
+          );
+        },
+        this.max_coroutines
+      );
+    }
+
+    return this._executeSearch(this.driver, query, config, options);
+  }
+
+  private async _executeSearch(
+    driver: GraphDriver,
+    query: string,
+    config: SearchConfig,
+    options: GraphitiSearchOptions
+  ): Promise<SearchResults> {
     const needsQueryEmbedding =
       config.node_config?.search_methods.includes('cosine_similarity') === true ||
       config.edge_config?.search_methods.includes('cosine_similarity') === true ||
@@ -1497,7 +1578,7 @@ export class Graphiti {
           };
 
     return search(
-      this.driver,
+      driver,
       query,
       options.group_ids,
       config,
