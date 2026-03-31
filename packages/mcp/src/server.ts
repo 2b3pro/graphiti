@@ -365,3 +365,21 @@ export async function runStdioServer(graphiti: Graphiti, config: McpServerConfig
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
+
+/**
+ * Create the MCP server and return it for use with any transport.
+ * This enables HTTP/SSE transport by letting callers wire their own transport.
+ *
+ * Usage with StreamableHTTPServerTransport:
+ *   import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+ *   const server = createGraphitiMcpServer(graphiti, config);
+ *   const transport = new StreamableHTTPServerTransport({ ... });
+ *   await server.connect(transport);
+ *
+ * Usage with SSEServerTransport:
+ *   import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+ *   const server = createGraphitiMcpServer(graphiti, config);
+ *   const transport = new SSEServerTransport('/messages', res);
+ *   await server.connect(transport);
+ */
+// (createGraphitiMcpServer is already exported above for this purpose)

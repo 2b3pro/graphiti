@@ -1,4 +1,4 @@
-import type { GraphDriver } from '../../contracts';
+import type { EmbedderClient, GraphDriver } from '../../contracts';
 import type { CommunityNode } from '../../domain/nodes';
 
 export interface CommunityNodeOperations {
@@ -9,4 +9,9 @@ export interface CommunityNodeOperations {
   getByGroupIds(driver: GraphDriver, groupIds: string[]): Promise<CommunityNode[]>;
   deleteByUuids(driver: GraphDriver, uuids: string[]): Promise<void>;
   deleteByGroupId(driver: GraphDriver, groupId: string): Promise<void>;
+  loadNameEmbedding(
+    driver: GraphDriver,
+    node: CommunityNode,
+    embedder: EmbedderClient
+  ): Promise<CommunityNode>;
 }

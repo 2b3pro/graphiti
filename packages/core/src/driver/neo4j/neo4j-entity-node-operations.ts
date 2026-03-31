@@ -1,6 +1,6 @@
 import { NodeNotFoundError, validateGroupId, validateNodeLabels } from '@graphiti/shared';
 
-import type { GraphDriver } from '../../contracts';
+import type { EmbedderClient, GraphDriver } from '../../contracts';
 import type { EntityNode } from '../../domain/nodes';
 import { mapEntityNode } from '../../namespaces/nodes';
 import { type RecordLike } from '../../utils/records';
@@ -160,5 +160,29 @@ export class Neo4jEntityNodeOperations implements EntityNodeOperations {
       `,
       { params: { group_id: groupId } }
     );
+  }
+
+  async loadEmbeddings(
+    driver: GraphDriver,
+    node: EntityNode,
+    embedder: EmbedderClient
+  ): Promise<EntityNode> {
+    if (!node.name_embedding) {
+      node.name_embedding = await embedder.create([node.name.replaceAll('\n', ' ')]);
+    }
+    return node;
+  }
+
+  async loadEmbeddingsBulk(
+    driver: GraphDriver,
+    nodes: EntityNode[],
+    embedder: EmbedderClient
+  ): Promise<EntityNode[]> {
+    for (const node of nodes) {
+      if (!node.name_embedding) {
+        node.name_embedding = await embedder.create([node.name.replaceAll('\n', ' ')]);
+      }
+    }
+    return nodes;
   }
 }

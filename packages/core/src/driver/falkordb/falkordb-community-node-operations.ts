@@ -1,6 +1,6 @@
 import { NodeNotFoundError, validateGroupId } from '@graphiti/shared';
 
-import type { GraphDriver } from '../../contracts';
+import type { EmbedderClient, GraphDriver } from '../../contracts';
 import type { CommunityNode } from '../../domain/nodes';
 import { getRecordValue, parseDateValue, type RecordLike } from '../../utils/records';
 import { serializeForFalkor } from '../../utils/serialization';
@@ -153,5 +153,16 @@ export class FalkorCommunityNodeOperations implements CommunityNodeOperations {
       `,
       { params: { group_id: groupId } }
     );
+  }
+
+  async loadNameEmbedding(
+    driver: GraphDriver,
+    node: CommunityNode,
+    embedder: EmbedderClient
+  ): Promise<CommunityNode> {
+    if (!node.name_embedding) {
+      node.name_embedding = await embedder.create([node.name.replaceAll('\n', ' ')]);
+    }
+    return node;
   }
 }

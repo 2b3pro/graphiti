@@ -23,12 +23,20 @@ import { Neo4jEpisodicEdgeOperations } from './neo4j/neo4j-episodic-edge-operati
 import { Neo4jCommunityEdgeOperations } from './neo4j/neo4j-community-edge-operations';
 import { Neo4jCommunityNodeOperations } from './neo4j/neo4j-community-node-operations';
 import { Neo4jSearchOperations } from './neo4j/neo4j-search-operations';
+import { Neo4jSagaNodeOperations } from './neo4j/neo4j-saga-node-operations';
+import { Neo4jHasEpisodeEdgeOperations } from './neo4j/neo4j-has-episode-edge-operations';
+import { Neo4jNextEpisodeEdgeOperations } from './neo4j/neo4j-next-episode-edge-operations';
+import { Neo4jGraphMaintenanceOperations } from './neo4j/neo4j-graph-maintenance-operations';
 import type { CommunityEdgeOperations } from './operations/community-edge-operations';
 import type { CommunityNodeOperations } from './operations/community-node-operations';
 import type { EntityEdgeOperations } from './operations/entity-edge-operations';
 import type { EntityNodeOperations } from './operations/entity-node-operations';
 import type { EpisodeNodeOperations } from './operations/episode-node-operations';
 import type { EpisodicEdgeOperations } from './operations/episodic-edge-operations';
+import type { SagaNodeOperations } from './operations/saga-node-operations';
+import type { HasEpisodeEdgeOperations } from './operations/has-episode-edge-operations';
+import type { NextEpisodeEdgeOperations } from './operations/next-episode-edge-operations';
+import type { GraphMaintenanceOperations } from './operations/graph-maintenance-operations';
 import type { SearchOperations } from './operations/search-operations';
 
 export interface Neo4jConnectionConfig {
@@ -56,14 +64,14 @@ export interface Neo4jOperationsRegistry {
   entity_node_ops?: EntityNodeOperations;
   episode_node_ops?: EpisodeNodeOperations;
   community_node_ops?: CommunityNodeOperations;
-  saga_node_ops?: object;
+  saga_node_ops?: SagaNodeOperations;
   entity_edge_ops?: EntityEdgeOperations;
   episodic_edge_ops?: EpisodicEdgeOperations;
   community_edge_ops?: CommunityEdgeOperations;
-  has_episode_edge_ops?: object;
-  next_episode_edge_ops?: object;
+  has_episode_edge_ops?: HasEpisodeEdgeOperations;
+  next_episode_edge_ops?: NextEpisodeEdgeOperations;
   search_ops?: SearchOperations;
-  graph_ops?: object;
+  graph_ops?: GraphMaintenanceOperations;
 }
 
 export class Neo4jDriver extends BaseGraphDriver {
@@ -78,6 +86,10 @@ export class Neo4jDriver extends BaseGraphDriver {
   readonly communityEdgeOps: CommunityEdgeOperations;
   readonly entityEdgeOps: EntityEdgeOperations;
   readonly episodicEdgeOps: EpisodicEdgeOperations;
+  readonly sagaNodeOps: SagaNodeOperations;
+  readonly hasEpisodeEdgeOps: HasEpisodeEdgeOperations;
+  readonly nextEpisodeEdgeOps: NextEpisodeEdgeOperations;
+  readonly graphOps: GraphMaintenanceOperations;
   readonly searchOps: SearchOperations;
 
   constructor(
@@ -98,6 +110,10 @@ export class Neo4jDriver extends BaseGraphDriver {
     this.communityEdgeOps = operations.community_edge_ops ?? new Neo4jCommunityEdgeOperations();
     this.entityEdgeOps = operations.entity_edge_ops ?? new Neo4jEntityEdgeOperations();
     this.episodicEdgeOps = operations.episodic_edge_ops ?? new Neo4jEpisodicEdgeOperations();
+    this.sagaNodeOps = operations.saga_node_ops ?? new Neo4jSagaNodeOperations();
+    this.hasEpisodeEdgeOps = operations.has_episode_edge_ops ?? new Neo4jHasEpisodeEdgeOperations();
+    this.nextEpisodeEdgeOps = operations.next_episode_edge_ops ?? new Neo4jNextEpisodeEdgeOperations();
+    this.graphOps = operations.graph_ops ?? new Neo4jGraphMaintenanceOperations();
     this.searchOps = operations.search_ops ?? new Neo4jSearchOperations();
   }
 

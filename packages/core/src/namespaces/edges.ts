@@ -165,6 +165,101 @@ export class EntityEdgeNamespace {
     return result.records.map((record) => mapEntityEdge(record));
   }
 
+  async getByGroupIds(groupIds: string[]): Promise<EntityEdge[]> {
+    if (groupIds.length === 0) return [];
+
+    const ops = this.ops ?? resolveEntityEdgeOps(this.driver);
+    if (ops) {
+      return ops.getByGroupIds(this.driver, groupIds);
+    }
+
+    const result = await this.driver.executeQuery<RecordLike>(
+      `
+        MATCH (source:Entity)-[e:RELATES_TO]->(target:Entity)
+        WHERE e.group_id IN $group_ids
+        RETURN
+          e.uuid AS uuid,
+          e.group_id AS group_id,
+          source.uuid AS source_node_uuid,
+          target.uuid AS target_node_uuid,
+          e.created_at AS created_at,
+          e.name AS name,
+          e.fact AS fact,
+          e.fact_embedding AS fact_embedding,
+          e.episodes AS episodes,
+          e.expired_at AS expired_at,
+          e.valid_at AS valid_at,
+          e.invalid_at AS invalid_at
+      `,
+      { params: { group_ids: groupIds }, routing: 'r' }
+    );
+
+    return result.records.map((record) => mapEntityEdge(record));
+  }
+
+  async getBetweenNodes(
+    sourceNodeUuid: string,
+    targetNodeUuid: string
+  ): Promise<EntityEdge[]> {
+    const ops = this.ops ?? resolveEntityEdgeOps(this.driver);
+    if (ops) {
+      return ops.getBetweenNodes(this.driver, sourceNodeUuid, targetNodeUuid);
+    }
+
+    const result = await this.driver.executeQuery<RecordLike>(
+      `
+        MATCH (source:Entity {uuid: $source_uuid})-[e:RELATES_TO]->(target:Entity {uuid: $target_uuid})
+        WHERE e.expired_at IS NULL
+        RETURN
+          e.uuid AS uuid,
+          e.group_id AS group_id,
+          source.uuid AS source_node_uuid,
+          target.uuid AS target_node_uuid,
+          e.created_at AS created_at,
+          e.name AS name,
+          e.fact AS fact,
+          e.fact_embedding AS fact_embedding,
+          e.episodes AS episodes,
+          e.expired_at AS expired_at,
+          e.valid_at AS valid_at,
+          e.invalid_at AS invalid_at
+      `,
+      { params: { source_uuid: sourceNodeUuid, target_uuid: targetNodeUuid }, routing: 'r' }
+    );
+
+    return result.records.map((record) => mapEntityEdge(record));
+  }
+
+  async getByNodeUuid(nodeUuid: string): Promise<EntityEdge[]> {
+    const ops = this.ops ?? resolveEntityEdgeOps(this.driver);
+    if (ops) {
+      return ops.getByNodeUuid(this.driver, nodeUuid);
+    }
+
+    const result = await this.driver.executeQuery<RecordLike>(
+      `
+        MATCH (source:Entity)-[e:RELATES_TO]->(target:Entity)
+        WHERE source.uuid = $node_uuid OR target.uuid = $node_uuid
+        RETURN
+          e.uuid AS uuid,
+          e.group_id AS group_id,
+          source.uuid AS source_node_uuid,
+          target.uuid AS target_node_uuid,
+          e.created_at AS created_at,
+          e.name AS name,
+          e.fact AS fact,
+          e.fact_embedding AS fact_embedding,
+          e.episodes AS episodes,
+          e.expired_at AS expired_at,
+          e.valid_at AS valid_at,
+          e.invalid_at AS invalid_at
+      `,
+      { params: { node_uuid: nodeUuid }, routing: 'r' }
+    );
+
+    return result.records.map((record) => mapEntityEdge(record));
+  }
+
   async deleteByUuids(uuids: string[]): Promise<void> {
     if (uuids.length === 0) return;
 
@@ -262,6 +357,110 @@ export class EpisodicEdgeNamespace {
 
     return edges;
   }
+
+  async getByUuid(uuid: string): Promise<EpisodicEdge> {
+    const ops = this.ops ?? resolveEpisodicEdgeOps(this.driver);
+    if (ops) {
+      return ops.getByUuid(this.driver, uuid);
+    }
+
+    const result = await this.driver.executeQuery<RecordLike>(
+      `
+        MATCH (episode:Episodic)-[e:MENTIONS {uuid: $uuid}]->(entity:Entity)
+        RETURN
+          e.uuid AS uuid,
+          e.group_id AS group_id,
+          episode.uuid AS source_node_uuid,
+          entity.uuid AS target_node_uuid,
+          e.created_at AS created_at
+      `,
+      { params: { uuid }, routing: 'r' }
+    );
+
+    const record = result.records[0];
+    if (!record) {
+      throw new EdgeNotFoundError(uuid);
+    }
+
+    return mapEpisodicEdge(record);
+  }
+
+  async getByUuids(uuids: string[]): Promise<EpisodicEdge[]> {
+    if (uuids.length === 0) return [];
+
+    const ops = this.ops ?? resolveEpisodicEdgeOps(this.driver);
+    if (ops) {
+      return ops.getByUuids(this.driver, uuids);
+    }
+
+    const result = await this.driver.executeQuery<RecordLike>(
+      `
+        MATCH (episode:Episodic)-[e:MENTIONS]->(entity:Entity)
+        WHERE e.uuid IN $uuids
+        RETURN
+          e.uuid AS uuid,
+          e.group_id AS group_id,
+          episode.uuid AS source_node_uuid,
+          entity.uuid AS target_node_uuid,
+          e.created_at AS created_at
+      `,
+      { params: { uuids }, routing: 'r' }
+    );
+
+    return result.records.map((record) => mapEpisodicEdge(record));
+  }
+
+  async deleteByUuids(uuids: string[]): Promise<void> {
+    if (uuids.length === 0) return;
+
+    const ops = this.ops ?? resolveEpisodicEdgeOps(this.driver);
+    if (ops) {
+      await ops.deleteByUuids(this.driver, uuids);
+      return;
+    }
+
+    await this.driver.executeQuery(
+      `
+        MATCH ()-[e:MENTIONS]->()
+        WHERE e.uuid IN $uuids
+        WITH collect(e) AS edges
+        FOREACH (edge IN edges | DELETE edge)
+        RETURN size(edges) AS deleted_count
+      `,
+      { params: { uuids } }
+    );
+  }
+
+  async deleteByGroupId(groupId: string): Promise<void> {
+    validateGroupId(groupId);
+
+    const ops = this.ops ?? resolveEpisodicEdgeOps(this.driver);
+    if (ops) {
+      await ops.deleteByGroupId(this.driver, groupId);
+      return;
+    }
+
+    await this.driver.executeQuery(
+      `
+        MATCH ()-[e:MENTIONS]->()
+        WHERE e.group_id = $group_id
+        WITH collect(e) AS edges
+        FOREACH (edge IN edges | DELETE edge)
+        RETURN size(edges) AS deleted_count
+      `,
+      { params: { group_id: groupId } }
+    );
+  }
+}
+
+function mapEpisodicEdge(record: RecordLike): EpisodicEdge {
+  return {
+    uuid: getRecordValue<string>(record, 'uuid') ?? '',
+    group_id: getRecordValue<string>(record, 'group_id') ?? '',
+    source_node_uuid: getRecordValue<string>(record, 'source_node_uuid') ?? '',
+    target_node_uuid: getRecordValue<string>(record, 'target_node_uuid') ?? '',
+    created_at: parseDateValue(getRecordValue(record, 'created_at')) ?? new Date()
+  };
 }
 
 export interface EdgeNamespaceApi {
