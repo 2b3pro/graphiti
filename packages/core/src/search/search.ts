@@ -5,6 +5,8 @@ import { FalkorDriver } from '../driver/falkordb-driver';
 import { Neo4jDriver } from '../driver/neo4j-driver';
 import type { SearchOperations } from '../driver/operations/search-operations';
 import {
+  CommunityRerankers,
+  CommunitySearchMethods,
   EdgeRerankers,
   EpisodeRerankers,
   EdgeSearchMethods,
@@ -41,7 +43,7 @@ export async function search(
     return createSearchResults();
   }
 
-  const [nodeResult, edgeResult, episodeResult] = await Promise.all([
+  const [nodeResult, edgeResult, episodeResult, communityResult] = await Promise.all([
     config.node_config
       ? collectNodeSearchResults(
           ops, driver, query, groupIds, config, searchFilter, options, crossEncoder
@@ -59,6 +61,12 @@ export async function search(
           ops, driver, query, groupIds, config, searchFilter, crossEncoder
         )
       : Promise.resolve({ episodes: [] as SearchResults['episodes'], scores: [] as number[] }),
+
+    config.community_config
+      ? collectCommunitySearchResults(
+          ops, driver, query, groupIds, config, options, crossEncoder
+        )
+      : Promise.resolve({ communities: [] as SearchResults['communities'], scores: [] as number[] }),
   ]);
 
   return createSearchResults({
@@ -68,6 +76,8 @@ export async function search(
     edge_reranker_scores: edgeResult.scores,
     episodes: episodeResult.episodes,
     episode_reranker_scores: episodeResult.scores,
+    communities: communityResult.communities,
+    community_reranker_scores: communityResult.scores,
   });
 }
 
@@ -674,4 +684,137 @@ function buildEdgePassage(edge: SearchResults['edges'][number]): string {
 
 function buildEpisodePassage(episode: SearchResults['episodes'][number]): string {
   return `${episode.name}\n${episode.source_description}\n${episode.content}`.trim();
+}
+
+function buildCommunityPassage(community: SearchResults['communities'][number]): string {
+  return `${community.name}\n${community.summary}`.trim();
+}
+
+async function collectCommunitySearchResults(
+  ops: SearchOperations,
+  driver: GraphDriver,
+  query: string,
+  groupIds: string[] | null | undefined,
+  config: SearchConfig,
+  options: SearchExecutionOptions,
+  crossEncoder?: CrossEncoderClient | null
+): Promise<{ communities: SearchResults['communities']; scores: number[] }> {
+  const communityConfig = config.community_config;
+  if (!communityConfig) {
+    return { communities: [], scores: [] };
+  }
+
+  const searchResults: SearchResults['communities'][] = [];
+  const expandedLimit = config.limit * 2;
+  const queryEmbedding = options.query_embedding ?? null;
+
+  if (
+    communityConfig.search_methods.includes(CommunitySearchMethods.cosine_similarity) &&
+    queryEmbedding &&
+    ops.communitySimilaritySearch
+  ) {
+    searchResults.push(
+      await ops.communitySimilaritySearch(
+        driver,
+        queryEmbedding,
+        groupIds,
+        expandedLimit,
+        communityConfig.sim_min_score
+      )
+    );
+  }
+
+  if (
+    communityConfig.search_methods.includes(CommunitySearchMethods.bm25) &&
+    ops.communityFulltextSearch
+  ) {
+    searchResults.push(
+      await ops.communityFulltextSearch(driver, query, groupIds, expandedLimit)
+    );
+  }
+
+  if (searchResults.length === 0) {
+    return { communities: [], scores: [] };
+  }
+
+  const uuidLists = searchResults.map((results) => results.map((c) => c.uuid));
+  const communityMap = new Map<string, SearchResults['communities'][number]>();
+  for (const results of searchResults) {
+    for (const community of results) {
+      if (!communityMap.has(community.uuid)) {
+        communityMap.set(community.uuid, community);
+      }
+    }
+  }
+
+  const reranker = communityConfig.reranker;
+  let rerankedUuids: string[];
+  let rerankedScores: number[];
+
+  switch (reranker) {
+    case CommunityRerankers.rrf: {
+      const rrf = reciprocalRankFusion(
+        uuidLists,
+        config.reranker_min_score
+      );
+      rerankedUuids = rrf.uuids;
+      rerankedScores = rrf.scores;
+      break;
+    }
+    case CommunityRerankers.mmr: {
+      if (!queryEmbedding) {
+        throw new SearchRerankerError('MMR reranker requires a query embedding');
+      }
+      const allCommunities = [...communityMap.values()];
+      const mmr = maximalMarginalRelevance(
+        allCommunities,
+        queryEmbedding,
+        (c) => c.name_embedding,
+        (c) => c.uuid,
+        communityConfig.mmr_lambda,
+        config.reranker_min_score
+      );
+      rerankedUuids = mmr.items.map((c) => c.uuid);
+      rerankedScores = mmr.scores;
+      break;
+    }
+    case CommunityRerankers.cross_encoder: {
+      if (!crossEncoder) {
+        throw new SearchRerankerError('Cross-encoder reranker requires a cross-encoder client');
+      }
+      const passages = [...communityMap.values()].map((c) => buildCommunityPassage(c));
+      const ranked = await crossEncoder.rank(query, passages);
+      const passageToUuid = new Map<string, string>();
+      for (const c of communityMap.values()) {
+        passageToUuid.set(buildCommunityPassage(c), c.uuid);
+      }
+      rerankedUuids = [];
+      rerankedScores = [];
+      for (const [passage, score] of ranked) {
+        if (score >= config.reranker_min_score) {
+          const uuid = passageToUuid.get(passage);
+          if (uuid) {
+            rerankedUuids.push(uuid);
+            rerankedScores.push(score);
+          }
+        }
+      }
+      break;
+    }
+    default: {
+      const rrf = reciprocalRankFusion(uuidLists, 0);
+      rerankedUuids = rrf.uuids;
+      rerankedScores = rrf.scores;
+    }
+  }
+
+  const communities = rerankedUuids
+    .slice(0, config.limit)
+    .map((uuid) => communityMap.get(uuid))
+    .filter((c): c is NonNullable<typeof c> => c !== undefined);
+
+  return {
+    communities,
+    scores: rerankedScores.slice(0, config.limit)
+  };
 }

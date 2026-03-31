@@ -2,8 +2,9 @@ import { GraphProviders } from '@graphiti/shared';
 
 import type { GraphDriver } from '../../contracts';
 import type { EntityEdge } from '../../domain/edges';
-import type { EntityNode, EpisodicNode } from '../../domain/nodes';
+import type { CommunityNode, EntityNode, EpisodicNode } from '../../domain/nodes';
 import { mapEntityEdge } from '../../namespaces/edges';
+import { mapCommunityNode } from '../../namespaces/communities';
 import { mapEntityNode, mapEpisodeNode } from '../../namespaces/nodes';
 import type { SearchFilters } from '../../search/filters';
 import { edgeSearchFilterQueryConstructor, nodeSearchFilterQueryConstructor, type ComparisonOperator } from '../../search/filters';
@@ -414,6 +415,83 @@ export class Neo4jSearchOperations implements SearchOperations {
     );
 
     return result.records.map((record) => mapEpisodeNode(record));
+  }
+
+  async communityFulltextSearch(
+    driver: GraphDriver,
+    query: string,
+    groupIds?: string[] | null,
+    limit = 20
+  ): Promise<CommunityNode[]> {
+    const params: Record<string, unknown> = {
+      query_lower: query.toLowerCase(),
+      limit
+    };
+    const whereClauses: string[] = [
+      '(toLower(coalesce(c.name, "")) CONTAINS $query_lower OR toLower(coalesce(c.summary, "")) CONTAINS $query_lower)'
+    ];
+
+    if (groupIds && groupIds.length > 0) {
+      whereClauses.push('c.group_id IN $group_ids');
+      params.group_ids = groupIds;
+    }
+
+    const result = await driver.executeQuery<RecordLike>(
+      `
+        MATCH (c:Community)
+        WHERE ${whereClauses.join(' AND ')}
+        RETURN
+          c.uuid AS uuid,
+          c.name AS name,
+          c.group_id AS group_id,
+          coalesce(c.labels, labels(c)) AS labels,
+          c.created_at AS created_at,
+          c.summary AS summary,
+          c.name_embedding AS name_embedding,
+          c.rank AS rank
+        LIMIT $limit
+      `,
+      { params, routing: 'r' }
+    );
+
+    return result.records.map((record) => mapCommunityNode(record));
+  }
+
+  async communitySimilaritySearch(
+    driver: GraphDriver,
+    queryEmbedding: number[],
+    groupIds?: string[] | null,
+    limit = 20,
+    minScore = 0.6
+  ): Promise<CommunityNode[]> {
+    const params: Record<string, unknown> = { limit };
+    const whereClauses: string[] = ['c.name_embedding IS NOT NULL'];
+
+    if (groupIds && groupIds.length > 0) {
+      whereClauses.push('c.group_id IN $group_ids');
+      params.group_ids = groupIds;
+    }
+
+    const result = await driver.executeQuery<RecordLike>(
+      `
+        MATCH (c:Community)
+        WHERE ${whereClauses.join(' AND ')}
+        RETURN
+          c.uuid AS uuid,
+          c.name AS name,
+          c.group_id AS group_id,
+          coalesce(c.labels, labels(c)) AS labels,
+          c.created_at AS created_at,
+          c.summary AS summary,
+          c.name_embedding AS name_embedding,
+          c.rank AS rank
+        LIMIT $limit
+      `,
+      { params, routing: 'r' }
+    );
+
+    const communities = result.records.map((record) => mapCommunityNode(record));
+    return rankByCosineSimilarity(communities, queryEmbedding, (c) => c.name_embedding, (c) => c.uuid, minScore);
   }
 }
 

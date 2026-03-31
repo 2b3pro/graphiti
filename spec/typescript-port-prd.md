@@ -574,12 +574,11 @@ These Python `Graphiti` methods have no TS equivalent:
 
 | Method | Complexity | Notes |
 | --- | --- | --- |
-| `add_episode_bulk()` | High | ~200 LOC bulk extraction/dedup pipeline |
 | `build_communities()` | High | Community detection + LLM summarization |
 | `remove_episode()` | Medium | Python version has cleanup logic (edge invalidation) |
 | `_get_or_create_saga()` | Medium | Saga node lifecycle |
-| `_extract_and_dedupe_nodes_bulk()` | Medium | Bulk dedup with LLM prompts |
-| `_resolve_nodes_and_edges_bulk()` | Medium | Bulk resolution pipeline |
+| `_extract_and_dedupe_nodes_bulk()` | Low | MinHash fuzzy dedup (basic name dedup done) |
+| `_resolve_nodes_and_edges_bulk()` | Low | Edge dedup within batch (basic flow done) |
 
 ### Gap Category 2: Missing Namespace Operations
 

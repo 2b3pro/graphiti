@@ -35,6 +35,7 @@ export interface EpisodicNode extends Node {
 
 export interface CommunityNode extends Node {
   summary: string;
+  name_embedding?: number[] | null;
   rank?: number | null;
 }
 

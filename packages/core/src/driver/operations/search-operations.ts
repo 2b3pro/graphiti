@@ -1,6 +1,6 @@
 import type { GraphDriver } from '../../contracts';
 import type { EntityEdge } from '../../domain/edges';
-import type { EntityNode, EpisodicNode } from '../../domain/nodes';
+import type { CommunityNode, EntityNode, EpisodicNode } from '../../domain/nodes';
 import type { SearchFilters } from '../../search/filters';
 
 export interface SearchOperations {
@@ -68,4 +68,17 @@ export interface SearchOperations {
     groupIds?: string[] | null,
     limit?: number
   ): Promise<EpisodicNode[]>;
+  communityFulltextSearch?(
+    driver: GraphDriver,
+    query: string,
+    groupIds?: string[] | null,
+    limit?: number
+  ): Promise<CommunityNode[]>;
+  communitySimilaritySearch?(
+    driver: GraphDriver,
+    queryEmbedding: number[],
+    groupIds?: string[] | null,
+    limit?: number,
+    minScore?: number
+  ): Promise<CommunityNode[]>;
 }

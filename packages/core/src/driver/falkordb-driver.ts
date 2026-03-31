@@ -12,7 +12,11 @@ import { FalkorEntityEdgeOperations } from './falkordb/falkordb-entity-edge-oper
 import { FalkorEntityNodeOperations } from './falkordb/falkordb-entity-node-operations';
 import { FalkorEpisodeNodeOperations } from './falkordb/falkordb-episode-node-operations';
 import { FalkorEpisodicEdgeOperations } from './falkordb/falkordb-episodic-edge-operations';
+import { FalkorCommunityEdgeOperations } from './falkordb/falkordb-community-edge-operations';
+import { FalkorCommunityNodeOperations } from './falkordb/falkordb-community-node-operations';
 import { FalkorSearchOperations } from './falkordb/falkordb-search-operations';
+import type { CommunityEdgeOperations } from './operations/community-edge-operations';
+import type { CommunityNodeOperations } from './operations/community-node-operations';
 import type { EntityEdgeOperations } from './operations/entity-edge-operations';
 import type { EntityNodeOperations } from './operations/entity-node-operations';
 import type { EpisodeNodeOperations } from './operations/episode-node-operations';
@@ -60,6 +64,8 @@ export class FalkorDriver extends BaseGraphDriver {
   readonly config: FalkorConnectionConfig;
   readonly client: FalkorClientAdapter;
   readonly entityNodeOps: EntityNodeOperations;
+  readonly communityNodeOps: CommunityNodeOperations;
+  readonly communityEdgeOps: CommunityEdgeOperations;
   readonly entityEdgeOps: EntityEdgeOperations;
   readonly episodeNodeOps: EpisodeNodeOperations;
   readonly episodicEdgeOps: EpisodicEdgeOperations;
@@ -73,6 +79,8 @@ export class FalkorDriver extends BaseGraphDriver {
     };
     this.client = client;
     this.entityNodeOps = new FalkorEntityNodeOperations();
+    this.communityNodeOps = new FalkorCommunityNodeOperations();
+    this.communityEdgeOps = new FalkorCommunityEdgeOperations();
     this.entityEdgeOps = new FalkorEntityEdgeOperations();
     this.episodeNodeOps = new FalkorEpisodeNodeOperations();
     this.episodicEdgeOps = new FalkorEpisodicEdgeOperations();

@@ -1,5 +1,6 @@
 import { SearchRerankerError } from '@graphiti/shared';
 
+import { createCommunityNamespace, type CommunityNamespaceApi } from './namespaces/communities';
 import { createEdgeNamespace, type EdgeNamespaceApi } from './namespaces/edges';
 import { createNodeNamespace, type NodeNamespaceApi } from './namespaces/nodes';
 import { createTracer, NoOpTracer, type Tracer } from './tracing';
@@ -102,6 +103,7 @@ export class Graphiti {
   readonly clients: GraphitiClients | null;
   readonly nodes: NodeNamespaceApi;
   readonly edges: EdgeNamespaceApi;
+  readonly communities: CommunityNamespaceApi;
 
   constructor(options: GraphitiOptions) {
     this.driver = options.driver;
@@ -124,6 +126,7 @@ export class Graphiti {
     this.tracer = createTracer(options.tracer ?? new NoOpTracer());
     this.nodes = createNodeNamespace(this.driver, this.embedder);
     this.edges = createEdgeNamespace(this.driver, this.embedder);
+    this.communities = createCommunityNamespace(this.driver, this.embedder);
     this.clients =
       this.llm_client && this.embedder && this.cross_encoder
         ? {

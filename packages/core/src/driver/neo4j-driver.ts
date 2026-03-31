@@ -20,7 +20,11 @@ import { Neo4jEntityEdgeOperations } from './neo4j/neo4j-entity-edge-operations'
 import { Neo4jEntityNodeOperations } from './neo4j/neo4j-entity-node-operations';
 import { Neo4jEpisodeNodeOperations } from './neo4j/neo4j-episode-node-operations';
 import { Neo4jEpisodicEdgeOperations } from './neo4j/neo4j-episodic-edge-operations';
+import { Neo4jCommunityEdgeOperations } from './neo4j/neo4j-community-edge-operations';
+import { Neo4jCommunityNodeOperations } from './neo4j/neo4j-community-node-operations';
 import { Neo4jSearchOperations } from './neo4j/neo4j-search-operations';
+import type { CommunityEdgeOperations } from './operations/community-edge-operations';
+import type { CommunityNodeOperations } from './operations/community-node-operations';
 import type { EntityEdgeOperations } from './operations/entity-edge-operations';
 import type { EntityNodeOperations } from './operations/entity-node-operations';
 import type { EpisodeNodeOperations } from './operations/episode-node-operations';
@@ -51,11 +55,11 @@ export interface Neo4jClientAdapter {
 export interface Neo4jOperationsRegistry {
   entity_node_ops?: EntityNodeOperations;
   episode_node_ops?: EpisodeNodeOperations;
-  community_node_ops?: object;
+  community_node_ops?: CommunityNodeOperations;
   saga_node_ops?: object;
   entity_edge_ops?: EntityEdgeOperations;
   episodic_edge_ops?: EpisodicEdgeOperations;
-  community_edge_ops?: object;
+  community_edge_ops?: CommunityEdgeOperations;
   has_episode_edge_ops?: object;
   next_episode_edge_ops?: object;
   search_ops?: SearchOperations;
@@ -70,6 +74,8 @@ export class Neo4jDriver extends BaseGraphDriver {
   readonly operations: Neo4jOperationsRegistry;
   readonly entityNodeOps: EntityNodeOperations;
   readonly episodeNodeOps: EpisodeNodeOperations;
+  readonly communityNodeOps: CommunityNodeOperations;
+  readonly communityEdgeOps: CommunityEdgeOperations;
   readonly entityEdgeOps: EntityEdgeOperations;
   readonly episodicEdgeOps: EpisodicEdgeOperations;
   readonly searchOps: SearchOperations;
@@ -88,6 +94,8 @@ export class Neo4jDriver extends BaseGraphDriver {
     this.operations = operations;
     this.entityNodeOps = operations.entity_node_ops ?? new Neo4jEntityNodeOperations();
     this.episodeNodeOps = operations.episode_node_ops ?? new Neo4jEpisodeNodeOperations();
+    this.communityNodeOps = operations.community_node_ops ?? new Neo4jCommunityNodeOperations();
+    this.communityEdgeOps = operations.community_edge_ops ?? new Neo4jCommunityEdgeOperations();
     this.entityEdgeOps = operations.entity_edge_ops ?? new Neo4jEntityEdgeOperations();
     this.episodicEdgeOps = operations.episodic_edge_ops ?? new Neo4jEpisodicEdgeOperations();
     this.searchOps = operations.search_ops ?? new Neo4jSearchOperations();
