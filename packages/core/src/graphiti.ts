@@ -28,6 +28,11 @@ import {
   type NodeHydrator
 } from './ingest/hydrator';
 import { resolveEpisodeExtraction } from './ingest/resolver';
+import {
+  buildCommunities as buildCommunitiesOp,
+  removeCommunities,
+  updateCommunity as updateCommunityOp
+} from './community/community-operations';
 import type { SearchConfig, SearchResults } from './search/config';
 import { EdgeRerankers, NodeRerankers, createSearchConfig } from './search/config';
 import { createSearchFilters, type SearchFilters } from './search/filters';
@@ -425,6 +430,49 @@ export class Graphiti {
       await transaction.rollback();
       throw error;
     }
+  }
+
+  async buildCommunities(
+    groupIds: string[] | null = null
+  ): Promise<{ nodes: import('./domain/nodes').CommunityNode[]; edges: import('./domain/edges').CommunityEdge[] }> {
+    if (!this.llm_client) {
+      throw new Error('LLM client is required for building communities');
+    }
+
+    await removeCommunities(this.driver);
+
+    const [communityNodes, communityEdges] = await buildCommunitiesOp(
+      this.driver,
+      this.llm_client,
+      this.nodes.entity,
+      groupIds
+    );
+
+    await this.communities.node.saveBulk(communityNodes);
+    await this.communities.edge.saveBulk(communityEdges);
+
+    return { nodes: communityNodes, edges: communityEdges };
+  }
+
+  async updateCommunity(
+    entity: EntityNode
+  ): Promise<{ nodes: import('./domain/nodes').CommunityNode[]; edges: import('./domain/edges').CommunityEdge[] }> {
+    if (!this.llm_client) {
+      throw new Error('LLM client is required for updating communities');
+    }
+    if (!this.embedder) {
+      throw new Error('Embedder is required for updating communities');
+    }
+
+    const [nodes, edges] = await updateCommunityOp(
+      this.driver,
+      this.llm_client,
+      this.embedder,
+      this.communities,
+      entity
+    );
+
+    return { nodes, edges };
   }
 
   private async enrichExtractionEmbeddings(extraction: EpisodeExtractionResult): Promise<void> {

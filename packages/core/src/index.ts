@@ -24,6 +24,8 @@ export * from './driver/operations/community-edge-operations';
 export * from './driver/operations/community-node-operations';
 export * from './driver/operations/episodic-edge-operations';
 export * from './driver/query-executor';
+export * from './community/community-operations';
+export * from './community/prompts';
 export * from './graphiti';
 export * from './ingest/extractor';
 export * from './ingest/hydrator';
