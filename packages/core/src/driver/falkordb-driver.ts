@@ -68,7 +68,7 @@ export interface FalkorClientAdapter {
 
 export class FalkorDriver extends BaseGraphDriver {
   readonly provider = GraphProviders.FALKORDB;
-  readonly default_group_id = '\\_';
+  readonly default_group_id = '_';
   readonly config: FalkorConnectionConfig;
   readonly client: FalkorClientAdapter;
   readonly entityNodeOps: EntityNodeOperations;

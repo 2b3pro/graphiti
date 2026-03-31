@@ -73,12 +73,14 @@ export function labelPropagation(
       }
     }
 
-    if (noChange) {
-      break;
-    }
-
+    // FIX: Update community_map BEFORE break check so the last iteration's
+    // result is preserved when the loop exits at maxIterations.
     for (const [uuid, community] of newCommunityMap) {
       communityMap.set(uuid, community);
+    }
+
+    if (noChange) {
+      break;
     }
   }
 

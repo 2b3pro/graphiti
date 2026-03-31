@@ -25,6 +25,7 @@ export class FalkorSearchOperations implements SearchOperations {
     minScore = 0
   ): Promise<EntityNode[]> {
     const { clause, params } = buildNodeVectorWhereClause(searchFilter, groupIds);
+    params.search_vector = queryEmbedding;
     const result = await driver.executeQuery<RecordLike>(
       `
         MATCH (n:Entity)
@@ -64,6 +65,7 @@ export class FalkorSearchOperations implements SearchOperations {
     minScore = 0
   ): Promise<EntityEdge[]> {
     const { clause, params } = buildEdgeVectorWhereClause(searchFilter, groupIds);
+    params.search_vector = queryEmbedding;
     const result = await driver.executeQuery<RecordLike>(
       `
         MATCH (n:Entity)-[e:RELATES_TO]->(m:Entity)
@@ -467,8 +469,11 @@ export class FalkorSearchOperations implements SearchOperations {
     limit = 20,
     minScore = 0.6
   ): Promise<CommunityNode[]> {
-    const params: Record<string, unknown> = { limit };
-    const whereClauses: string[] = ['c.name_embedding IS NOT NULL'];
+    const params: Record<string, unknown> = { limit, search_vector: queryEmbedding };
+    const whereClauses: string[] = [
+      'c.name_embedding IS NOT NULL',
+      'size(c.name_embedding) = size($search_vector)'
+    ];
 
     if (groupIds && groupIds.length > 0) {
       whereClauses.push('c.group_id IN $group_ids');
@@ -537,7 +542,10 @@ function buildNodeVectorWhereClause(
     GraphProviders.FALKORDB
   );
   const params: Record<string, unknown> = { ...filterParams };
-  const queries = ['n.name_embedding IS NOT NULL'];
+  const queries = [
+    'n.name_embedding IS NOT NULL',
+    'size(n.name_embedding) = size($search_vector)'
+  ];
 
   if (groupIds && groupIds.length > 0) {
     queries.push('n.group_id IN $group_ids');
@@ -619,7 +627,10 @@ function buildEdgeVectorWhereClause(
     GraphProviders.FALKORDB
   );
   const params: Record<string, unknown> = { ...filterParams };
-  const queries = ['e.fact_embedding IS NOT NULL'];
+  const queries = [
+    'e.fact_embedding IS NOT NULL',
+    'size(e.fact_embedding) = size($search_vector)'
+  ];
 
   if (groupIds && groupIds.length > 0) {
     queries.push('e.group_id IN $group_ids');

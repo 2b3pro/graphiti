@@ -23,7 +23,8 @@ export function normalizeStringExact(name: string): string {
 
 export function normalizeNameForFuzzy(name: string): string {
   const exact = normalizeStringExact(name);
-  const cleaned = exact.replace(/[^a-z0-9' ]/g, ' ').trim();
+  // Use \w (Unicode word chars) instead of [a-z0-9] to preserve CJK and other non-Latin scripts
+  const cleaned = exact.replace(/[^\w' ]/g, ' ').trim();
   return cleaned.replace(/\s+/g, ' ');
 }
 
@@ -61,7 +62,28 @@ export function hasHighEntropy(normalizedName: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Shingles (3-gram)
+// CJK Detection
+// ---------------------------------------------------------------------------
+
+export function hasCjk(text: string): boolean {
+  for (const ch of text) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (
+      (cp >= 0x4e00 && cp <= 0x9fff) ||   // CJK Unified Ideographs
+      (cp >= 0x3400 && cp <= 0x4dbf) ||   // CJK Extension A
+      (cp >= 0xf900 && cp <= 0xfaff) ||   // CJK Compatibility Ideographs
+      (cp >= 0x3000 && cp <= 0x303f) ||   // CJK Symbols and Punctuation
+      (cp >= 0x3040 && cp <= 0x30ff) ||   // Hiragana + Katakana
+      (cp >= 0xac00 && cp <= 0xd7af)      // Hangul Syllables
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Shingles (n-gram: 2 for CJK, 3 for Latin)
 // ---------------------------------------------------------------------------
 
 export function shingles(normalizedName: string): Set<string> {
@@ -69,9 +91,15 @@ export function shingles(normalizedName: string): Set<string> {
   if (cleaned.length < 2) {
     return cleaned.length > 0 ? new Set([cleaned]) : new Set();
   }
+
+  const n = hasCjk(cleaned) ? 2 : 3;
+  if (cleaned.length < n) {
+    return new Set([cleaned]);
+  }
+
   const result = new Set<string>();
-  for (let i = 0; i <= cleaned.length - 3; i++) {
-    result.add(cleaned.substring(i, i + 3));
+  for (let i = 0; i <= cleaned.length - n; i++) {
+    result.add(cleaned.substring(i, i + n));
   }
   return result;
 }

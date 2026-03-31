@@ -79,7 +79,7 @@ test('shingles creates 3-grams with spaces removed', () => {
 });
 
 test('shingles handles short strings', () => {
-  expect(shingles('ab')).toEqual(new Set()); // 2 chars → no 3-grams
+  expect(shingles('ab')).toEqual(new Set(['ab'])); // 2 chars < n(3) → whole string
   expect(shingles('a')).toEqual(new Set(['a'])); // single char fallback
   expect(shingles('')).toEqual(new Set());
 });

@@ -78,10 +78,16 @@ export class OpenAIGenericClient implements LLMClient {
             response_format: { type: 'json_object' }
           });
 
-          const content = response.choices[0]?.message?.content ?? '';
+          let content = response.choices[0]?.message?.content ?? '';
 
           if (content === '') {
             throw new EmptyResponseError();
+          }
+
+          // Strip markdown code fences that some local LLMs wrap around JSON
+          if (content.startsWith('```')) {
+            content = content.split('\n', 2).slice(1).join('\n');
+            content = content.replace(/```\s*$/, '').trim();
           }
 
           const refusal = (response.choices[0]?.message as { refusal?: string })?.refusal;

@@ -165,11 +165,11 @@ async function resolveEdges(
   const result = await driver.executeQuery<RecordLike>(
     `
       UNWIND $edge_keys AS edge_key
-      MATCH (source:Entity)-[e:RELATES_TO]->(target:Entity)
+      MATCH (source:Entity)-[e:RELATES_TO]-(target:Entity)
       WHERE
         e.group_id = $group_id AND
-        source.uuid = edge_key.source_node_uuid AND
-        target.uuid = edge_key.target_node_uuid AND
+        ((source.uuid = edge_key.source_node_uuid AND target.uuid = edge_key.target_node_uuid) OR
+         (source.uuid = edge_key.target_node_uuid AND target.uuid = edge_key.source_node_uuid)) AND
         toLower(e.name) = edge_key.name_lower
       RETURN
         e.uuid AS uuid,
