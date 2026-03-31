@@ -56,7 +56,7 @@ The TypeScript port must preserve the core product concepts:
 - community graph support
 - saga support
 - full provider matrix (only OpenAI implemented)
-- bulk operations (`addEpisodeBulk`, `saveBulk`, `deleteByUuids`)
+- bulk operations (`addEpisodeBulk`, `deleteByUuids`)
 - LLM-assisted deduplication
 - content chunking
 - token tracking and LLM response caching
@@ -73,11 +73,11 @@ Reason:
 
 Active TS packages under `packages/`:
 
-- `packages/shared` — 7 source files
-- `packages/core` — 55 source files
-- `packages/server` — 7 source files
+- `packages/shared` — 6 source files, 1 test file
+- `packages/core` — 46 source files, 15 test files
+- `packages/server` — 5 source files, 2 test files
 - `packages/mcp` — 3 source files
-- `packages/testkit` — 6 source files
+- `packages/testkit` — 7 source files
 
 Important root files:
 
@@ -95,7 +95,8 @@ The TypeScript port is production-relevant for core operations.
 There is now a functioning TS core with:
 
 - Neo4j and FalkorDB driver paths
-- a usable `Graphiti` client with all primary CRUD and search methods
+- a usable `Graphiti` client with all primary CRUD, batch, and search methods
+- batch namespace operations (`saveBulk`, `getByUuids`, `getByGroupIds`) across all namespaces
 - reusable backend operation layers
 - working search execution with all non-community rerankers
 - server-wired non-community search filters and center-node reranking controls
@@ -385,6 +386,14 @@ Not implemented:
 | Get episode node by uuid | Yes | Yes | Working |
 | Delete episode node by uuid | Yes | Yes | Working |
 | Save episodic mention edge | Yes | Yes | Working |
+| Bulk save entity nodes | Yes | Yes | Working |
+| Bulk save episode nodes | Yes | Yes | Working |
+| Bulk save entity edges | Yes | Yes | Working |
+| Bulk save episodic edges | Yes | Yes | Working |
+| Get entity nodes by UUIDs | Yes | Yes | Working |
+| Get episode nodes by UUIDs | Yes | Yes | Working |
+| Get entity edges by UUIDs | Yes | Yes | Working |
+| Get entity nodes by group IDs | Yes | Yes | Working |
 | Add triplet | Yes | Yes | Working |
 | Add episode | Yes | Yes | Working |
 | Ingest raw episode text | Yes | Yes | Working, heuristic + model |
@@ -639,9 +648,15 @@ Status: done
 
 Status: in progress
 
-Done means:
+Progress:
+
+- batch namespace operations (`saveBulk`, `getByUuids`, `getByGroupIds`) — done
+- `getNodesAndEdgesByEpisode()` refactored to batch queries — done
+
+Remaining:
 
 - bulk ingest (`addEpisodeBulk`)
+- `deleteByUuids()` across namespaces
 - LLM-assisted deduplication
 - community maintenance or an explicit decision to defer it
 
@@ -722,23 +737,27 @@ rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
 
 ## Recommended Next Steps
 
-### Priority 1: Batch Namespace Operations
-
-Status: done
-
-Added `saveBulk()`, `getByUuids()`, and `getByGroupIds()` across entity node, episode node, entity edge, and episodic edge namespaces. `getNodesAndEdgesByEpisode()` refactored to use batch `getByUuids()`. Only `deleteByUuids()` remains.
-
-### Priority 2: Additional LLM/Embedder Providers
+### Priority 1: Additional LLM/Embedder Providers
 
 Add Anthropic LLM client and Gemini LLM + embedder. These unlock the TS port for non-OpenAI deployments and are straightforward to implement against the existing `LLMClient` / `EmbedderClient` interfaces.
 
-### Priority 3: Bulk Ingestion
+### Priority 2: Bulk Ingestion
 
-Port `addEpisodeBulk()` with the associated extraction and dedup helpers. This is the largest remaining core feature gap.
+Port `addEpisodeBulk()` with the associated extraction and dedup helpers. This is the largest remaining core feature gap. The batch namespace operations (`saveBulk`, `getByUuids`) are now in place as prerequisites.
+
+### Priority 3: deleteByUuids Operations
+
+Add `deleteByUuids()` across entity nodes, episode nodes, and entity edges. Follows the same pattern as the existing `getByUuids()` implementations — use `WHERE uuid IN $uuids` with batch delete.
 
 ### Priority 4: Community Graph
 
 Port community node/edge operations, detection algorithm, and search. This is a substantial subsystem.
+
+## Completed Priorities
+
+### Batch Namespace Operations (done)
+
+Added `saveBulk()`, `getByUuids()`, and `getByGroupIds()` across entity node, episode node, entity edge, and episodic edge namespaces. `getNodesAndEdgesByEpisode()` refactored to use batch `getByUuids()` instead of N individual queries.
 
 ## Files Most Worth Reading Next
 
