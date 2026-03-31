@@ -8,7 +8,7 @@ import { createLLMConfig } from '../../llm/config';
 import type { Message } from '../../prompts/types';
 import { EmptyResponseError, RateLimitError } from '../errors';
 
-const DEFAULT_MODEL = 'claude-sonnet-4-5-latest';
+const DEFAULT_MODEL = 'claude-sonnet-4-6-latest';
 const DEFAULT_SMALL_MODEL = 'claude-haiku-4-5-latest';
 const MAX_RETRIES = 2;
 

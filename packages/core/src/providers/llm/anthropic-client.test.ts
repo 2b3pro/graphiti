@@ -48,7 +48,7 @@ describe('AnthropicClient', () => {
       client: createMockAnthropic('')
     });
 
-    expect(client.model).toBe('claude-sonnet-4-5-latest');
+    expect(client.model).toBe('claude-sonnet-4-6-latest');
     expect(client.small_model).toBe('claude-haiku-4-5-latest');
   });
 

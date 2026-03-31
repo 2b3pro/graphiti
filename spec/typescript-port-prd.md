@@ -55,7 +55,7 @@ The TypeScript port must preserve the core product concepts:
 - Neptune/OpenSearch port
 - community graph support
 - saga support
-- full provider matrix (only OpenAI implemented)
+- full provider matrix (OpenAI, Anthropic, Gemini done; Groq, Azure, Voyage missing)
 - bulk operations (`addEpisodeBulk`, `deleteByUuids`)
 - LLM-assisted deduplication
 - content chunking
@@ -104,6 +104,8 @@ There is now a functioning TS core with:
 - a Bun-native HTTP server with the current route surface implemented
 - an MCP server with all 9 tools ported from Python
 - OpenAI providers for LLM, embedder, and cross-encoder
+- Anthropic LLM provider (claude-sonnet-4-6-latest default)
+- Gemini LLM provider (gemini-2.5-flash default) and embedder (text-embedding-004)
 
 ## Implemented Today
 
@@ -135,6 +137,9 @@ Implemented:
 - OpenAI LLM provider (with reasoning model detection, retry logic, tracer integration)
 - OpenAI embedder provider (text-embedding-3-small/large, multi-dimension)
 - OpenAI cross-encoder/reranker provider
+- Anthropic LLM provider (system message partitioning, retry logic, rate limit handling)
+- Gemini LLM provider (system instruction support, assistant→model role mapping, JSON response mode)
+- Gemini embedder provider (text-embedding-004, single and batch embedding)
 
 Implemented `Graphiti` methods:
 
@@ -347,8 +352,8 @@ Not implemented:
 | Provider | Python | TypeScript | Status |
 | --- | --- | --- | --- |
 | OpenAI | Yes | Yes | Parity |
-| Anthropic | Yes | No | Missing |
-| Gemini | Yes | No | Missing |
+| Anthropic | Yes | Yes | Parity |
+| Gemini | Yes | Yes | Parity |
 | Groq | Yes | No | Missing |
 | Azure OpenAI | Yes | No | Missing |
 | OpenAI-compatible (generic) | Yes | No | Missing |
@@ -359,7 +364,7 @@ Not implemented:
 | Provider | Python | TypeScript | Status |
 | --- | --- | --- | --- |
 | OpenAI | Yes | Yes | Parity |
-| Gemini | Yes | No | Missing |
+| Gemini | Yes | Yes | Parity |
 | Azure OpenAI | Yes | No | Missing |
 | Voyage AI | Yes | No | Missing |
 
@@ -466,11 +471,11 @@ rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
 
 Current status:
 
-- `173 pass`
-- `21 skip` (integration tests without database connections)
+- `367 pass`
+- `42 skip` (integration tests without database connections)
 - `0 fail`
-- `359 expect() calls`
-- `194 tests across 18 files`
+- `749 expect() calls`
+- `409 tests across 39 files`
 
 Test file inventory:
 
@@ -488,6 +493,9 @@ Test file inventory:
 | core | `openai-client.test.ts` | 9 | Unit |
 | core | `openai-embedder.test.ts` | 5 | Unit |
 | core | `openai-reranker.test.ts` | 5 | Unit |
+| core | `anthropic-client.test.ts` | 8 | Unit |
+| core | `gemini-client.test.ts` | 9 | Unit |
+| core | `gemini-embedder.test.ts` | 4 | Unit |
 | core | `neo4j-driver.integration.test.ts` | 21 | Integration (Neo4j) |
 | core | `falkordb-driver.integration.test.ts` | 20 | Integration (FalkorDB) |
 | server | `server.test.ts` | 9 | Unit |
@@ -587,11 +595,13 @@ Community and saga namespaces:
 
 ### Gap Category 3: Provider Coverage
 
-Only OpenAI is implemented. Python supports 7 LLM providers, 4 embedder providers, and 3 reranker providers. The highest-value additions would be:
+OpenAI, Anthropic, and Gemini are implemented. Python supports 7 LLM providers, 4 embedder providers, and 3 reranker providers. Remaining:
 
-1. Anthropic LLM client (most requested)
-2. Gemini LLM + embedder + reranker
-3. Azure OpenAI LLM + embedder (enterprise deployments)
+1. Groq LLM client
+2. Azure OpenAI LLM + embedder (enterprise deployments)
+3. Gemini reranker
+4. OpenAI-compatible generic client
+5. Voyage AI embedder
 
 ### Gap Category 4: Community Graph Support
 
@@ -668,13 +678,18 @@ The MCP package implements all 9 tools from the Python server, with stdio transp
 
 ### Milestone F: Provider Parity
 
-Status: pending
+Status: in progress (core providers done)
 
-Done means:
+Progress:
 
-- at least Anthropic and Gemini LLM clients
-- Gemini embedder
-- provider factory/registry pattern
+- Anthropic LLM client — done
+- Gemini LLM client — done
+- Gemini embedder — done
+
+Remaining:
+
+- Groq, Azure OpenAI, Gemini reranker
+- provider factory/registry pattern (optional)
 
 ### Milestone G: Community Graph Support
 
@@ -737,27 +752,31 @@ rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
 
 ## Recommended Next Steps
 
-### Priority 1: Additional LLM/Embedder Providers
+### Priority 1: Bulk Ingestion
 
-Add Anthropic LLM client and Gemini LLM + embedder. These unlock the TS port for non-OpenAI deployments and are straightforward to implement against the existing `LLMClient` / `EmbedderClient` interfaces.
+Port `addEpisodeBulk()` with the associated extraction and dedup helpers. This is the largest remaining core feature gap. The batch namespace operations (`saveBulk`, `getByUuids`) are in place as prerequisites.
 
-### Priority 2: Bulk Ingestion
-
-Port `addEpisodeBulk()` with the associated extraction and dedup helpers. This is the largest remaining core feature gap. The batch namespace operations (`saveBulk`, `getByUuids`) are now in place as prerequisites.
-
-### Priority 3: deleteByUuids Operations
+### Priority 2: deleteByUuids Operations
 
 Add `deleteByUuids()` across entity nodes, episode nodes, and entity edges. Follows the same pattern as the existing `getByUuids()` implementations — use `WHERE uuid IN $uuids` with batch delete.
 
-### Priority 4: Community Graph
+### Priority 3: Community Graph
 
 Port community node/edge operations, detection algorithm, and search. This is a substantial subsystem.
+
+### Priority 4: Remaining Providers
+
+Add Groq, Azure OpenAI, and Gemini reranker. The three highest-value providers (OpenAI, Anthropic, Gemini) are done.
 
 ## Completed Priorities
 
 ### Batch Namespace Operations (done)
 
 Added `saveBulk()`, `getByUuids()`, and `getByGroupIds()` across entity node, episode node, entity edge, and episodic edge namespaces. `getNodesAndEdgesByEpisode()` refactored to use batch `getByUuids()` instead of N individual queries.
+
+### Core LLM/Embedder Providers (done)
+
+Added AnthropicClient (claude-sonnet-4-6-latest), GeminiClient (gemini-2.5-flash), and GeminiEmbedder (text-embedding-004). All implement the existing LLMClient/EmbedderClient interfaces with retry logic, rate limit handling, and tracer integration. 21 unit tests.
 
 ## Files Most Worth Reading Next
 
