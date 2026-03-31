@@ -363,21 +363,28 @@ export class Graphiti {
   }
 
   async getNodesAndEdgesByEpisode(episodeUuids: string[]): Promise<SearchResults> {
-    const episodes = await Promise.all(
-      episodeUuids.map((uuid) => this.nodes.episode.getByUuid(uuid))
-    );
+    if (episodeUuids.length === 0) {
+      return {
+        nodes: [],
+        node_reranker_scores: [],
+        edges: [],
+        edge_reranker_scores: [],
+        episodes: [],
+        episode_reranker_scores: [],
+        communities: [],
+        community_reranker_scores: []
+      };
+    }
+
+    const episodes = await this.nodes.episode.getByUuids(episodeUuids);
 
     const allEdgeUuids = [...new Set(episodes.flatMap((ep) => ep.entity_edges ?? []))];
-    const edges = await Promise.all(
-      allEdgeUuids.map((uuid) => this.edges.entity.getByUuid(uuid))
-    );
+    const edges = await this.edges.entity.getByUuids(allEdgeUuids);
 
     const allNodeUuids = [
       ...new Set(edges.flatMap((edge) => [edge.source_node_uuid, edge.target_node_uuid]))
     ];
-    const nodes = await Promise.all(
-      allNodeUuids.map((uuid) => this.nodes.entity.getByUuid(uuid))
-    );
+    const nodes = await this.nodes.entity.getByUuids(allNodeUuids);
 
     return {
       nodes,

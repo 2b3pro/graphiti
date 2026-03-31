@@ -105,6 +105,66 @@ export class EntityEdgeNamespace {
     }
   }
 
+  async saveBulk(edges: EntityEdge[]): Promise<EntityEdge[]> {
+    if (edges.length === 0) return [];
+
+    for (const edge of edges) {
+      validateGroupId(edge.group_id);
+    }
+
+    if (this.embedder) {
+      for (const edge of edges) {
+        if (!edge.fact_embedding) {
+          edge.fact_embedding = await this.embedder.create([edge.fact.replaceAll('\n', ' ')]);
+        }
+      }
+    }
+
+    const ops = this.ops ?? resolveEntityEdgeOps(this.driver);
+    if (ops) {
+      await ops.saveBulk(this.driver, edges);
+      return edges;
+    }
+
+    for (const edge of edges) {
+      await this.save(edge);
+    }
+
+    return edges;
+  }
+
+  async getByUuids(uuids: string[]): Promise<EntityEdge[]> {
+    if (uuids.length === 0) return [];
+
+    const ops = this.ops ?? resolveEntityEdgeOps(this.driver);
+    if (ops) {
+      return ops.getByUuids(this.driver, uuids);
+    }
+
+    const result = await this.driver.executeQuery<RecordLike>(
+      `
+        MATCH (source:Entity)-[e:RELATES_TO]->(target:Entity)
+        WHERE e.uuid IN $uuids
+        RETURN
+          e.uuid AS uuid,
+          e.group_id AS group_id,
+          source.uuid AS source_node_uuid,
+          target.uuid AS target_node_uuid,
+          e.created_at AS created_at,
+          e.name AS name,
+          e.fact AS fact,
+          e.fact_embedding AS fact_embedding,
+          e.episodes AS episodes,
+          e.expired_at AS expired_at,
+          e.valid_at AS valid_at,
+          e.invalid_at AS invalid_at
+      `,
+      { params: { uuids }, routing: 'r' }
+    );
+
+    return result.records.map((record) => mapEntityEdge(record));
+  }
+
   async deleteByGroupId(groupId: string): Promise<void> {
     validateGroupId(groupId);
 
@@ -160,6 +220,26 @@ export class EpisodicEdgeNamespace {
     );
 
     return edge;
+  }
+
+  async saveBulk(edges: EpisodicEdge[]): Promise<EpisodicEdge[]> {
+    if (edges.length === 0) return [];
+
+    for (const edge of edges) {
+      validateGroupId(edge.group_id);
+    }
+
+    const ops = this.ops ?? resolveEpisodicEdgeOps(this.driver);
+    if (ops) {
+      await ops.saveBulk(this.driver, edges);
+      return edges;
+    }
+
+    for (const edge of edges) {
+      await this.save(edge);
+    }
+
+    return edges;
   }
 }
 

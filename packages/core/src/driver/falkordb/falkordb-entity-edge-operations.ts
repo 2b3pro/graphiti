@@ -8,6 +8,60 @@ import { serializeForCypher } from '../../utils/serialization';
 import type { EntityEdgeOperations } from '../operations/entity-edge-operations';
 
 export class FalkorEntityEdgeOperations implements EntityEdgeOperations {
+  async saveBulk(driver: GraphDriver, edges: EntityEdge[]): Promise<void> {
+    if (edges.length === 0) return;
+
+    for (const edge of edges) {
+      validateGroupId(edge.group_id);
+    }
+
+    for (const edge of edges) {
+      await driver.executeQuery(
+        `
+          MATCH (source:Entity {uuid: $source_uuid})
+          MATCH (target:Entity {uuid: $target_uuid})
+          MERGE (source)-[e:RELATES_TO {uuid: $edge.uuid}]->(target)
+          SET e += $edge
+          RETURN e.uuid AS uuid
+        `,
+        {
+          params: {
+            source_uuid: edge.source_node_uuid,
+            target_uuid: edge.target_node_uuid,
+            edge: serializeForCypher(edge)
+          }
+        }
+      );
+    }
+  }
+
+  async getByUuids(driver: GraphDriver, uuids: string[]): Promise<EntityEdge[]> {
+    if (uuids.length === 0) return [];
+
+    const result = await driver.executeQuery<RecordLike>(
+      `
+        MATCH (source:Entity)-[e:RELATES_TO]->(target:Entity)
+        WHERE e.uuid IN $uuids
+        RETURN
+          e.uuid AS uuid,
+          e.group_id AS group_id,
+          source.uuid AS source_node_uuid,
+          target.uuid AS target_node_uuid,
+          e.created_at AS created_at,
+          e.name AS name,
+          e.fact AS fact,
+          e.fact_embedding AS fact_embedding,
+          e.episodes AS episodes,
+          e.expired_at AS expired_at,
+          e.valid_at AS valid_at,
+          e.invalid_at AS invalid_at
+      `,
+      { params: { uuids }, routing: 'r' }
+    );
+
+    return result.records.map((record) => mapEntityEdge(record));
+  }
+
   async save(driver: GraphDriver, edge: EntityEdge): Promise<void> {
     validateGroupId(edge.group_id);
 

@@ -85,6 +85,91 @@ export class EntityNodeNamespace {
     return mapEntityNode(record);
   }
 
+  async saveBulk(nodes: EntityNode[]): Promise<EntityNode[]> {
+    if (nodes.length === 0) return [];
+
+    for (const node of nodes) {
+      validateGroupId(node.group_id);
+      validateNodeLabels(node.labels);
+    }
+
+    if (this.embedder) {
+      for (const node of nodes) {
+        if (!node.name_embedding) {
+          node.name_embedding = await this.embedder.create([node.name.replaceAll('\n', ' ')]);
+        }
+      }
+    }
+
+    const ops = this.ops ?? resolveEntityNodeOps(this.driver);
+    if (ops) {
+      await ops.saveBulk(this.driver, nodes);
+      return nodes;
+    }
+
+    for (const node of nodes) {
+      await this.save(node);
+    }
+
+    return nodes;
+  }
+
+  async getByUuids(uuids: string[]): Promise<EntityNode[]> {
+    if (uuids.length === 0) return [];
+
+    const ops = this.ops ?? resolveEntityNodeOps(this.driver);
+    if (ops) {
+      return ops.getByUuids(this.driver, uuids);
+    }
+
+    const result = await this.driver.executeQuery<RecordLike>(
+      `
+        MATCH (n:Entity)
+        WHERE n.uuid IN $uuids
+        RETURN
+          n.uuid AS uuid,
+          n.name AS name,
+          n.group_id AS group_id,
+          labels(n) AS labels,
+          n.created_at AS created_at,
+          n.name_embedding AS name_embedding,
+          n.summary AS summary,
+          n.attributes AS attributes
+      `,
+      { params: { uuids }, routing: 'r' }
+    );
+
+    return result.records.map((record) => mapEntityNode(record));
+  }
+
+  async getByGroupIds(groupIds: string[]): Promise<EntityNode[]> {
+    if (groupIds.length === 0) return [];
+
+    const ops = this.ops ?? resolveEntityNodeOps(this.driver);
+    if (ops) {
+      return ops.getByGroupIds(this.driver, groupIds);
+    }
+
+    const result = await this.driver.executeQuery<RecordLike>(
+      `
+        MATCH (n:Entity)
+        WHERE n.group_id IN $group_ids
+        RETURN
+          n.uuid AS uuid,
+          n.name AS name,
+          n.group_id AS group_id,
+          labels(n) AS labels,
+          n.created_at AS created_at,
+          n.name_embedding AS name_embedding,
+          n.summary AS summary,
+          n.attributes AS attributes
+      `,
+      { params: { group_ids: groupIds }, routing: 'r' }
+    );
+
+    return result.records.map((record) => mapEntityNode(record));
+  }
+
   async deleteByGroupId(groupId: string): Promise<void> {
     validateGroupId(groupId);
 
@@ -235,6 +320,56 @@ export class EpisodeNodeNamespace {
     if ((result.records[0]?.deleted_count ?? 0) === 0) {
       throw new NodeNotFoundError(uuid);
     }
+  }
+
+  async saveBulk(nodes: EpisodicNode[]): Promise<EpisodicNode[]> {
+    if (nodes.length === 0) return [];
+
+    for (const node of nodes) {
+      validateGroupId(node.group_id);
+    }
+
+    const ops = this.ops ?? resolveEpisodeNodeOps(this.driver);
+    if (ops) {
+      await ops.saveBulk(this.driver, nodes);
+      return nodes;
+    }
+
+    for (const node of nodes) {
+      await this.save(node);
+    }
+
+    return nodes;
+  }
+
+  async getByUuids(uuids: string[]): Promise<EpisodicNode[]> {
+    if (uuids.length === 0) return [];
+
+    const ops = this.ops ?? resolveEpisodeNodeOps(this.driver);
+    if (ops) {
+      return ops.getByUuids(this.driver, uuids);
+    }
+
+    const result = await this.driver.executeQuery<RecordLike>(
+      `
+        MATCH (n:Episodic)
+        WHERE n.uuid IN $uuids
+        RETURN
+          n.uuid AS uuid,
+          n.name AS name,
+          n.group_id AS group_id,
+          labels(n) AS labels,
+          n.created_at AS created_at,
+          n.source AS source,
+          n.source_description AS source_description,
+          n.content AS content,
+          n.valid_at AS valid_at,
+          n.entity_edges AS entity_edges
+      `,
+      { params: { uuids }, routing: 'r' }
+    );
+
+    return result.records.map((record) => mapEpisodeNode(record));
   }
 
   async deleteByGroupId(groupId: string): Promise<void> {

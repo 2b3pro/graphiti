@@ -8,6 +8,51 @@ import { serializeForCypher } from '../../utils/serialization';
 import type { EpisodeNodeOperations } from '../operations/episode-node-operations';
 
 export class Neo4jEpisodeNodeOperations implements EpisodeNodeOperations {
+  async saveBulk(driver: GraphDriver, nodes: EpisodicNode[]): Promise<void> {
+    if (nodes.length === 0) return;
+
+    for (const node of nodes) {
+      validateGroupId(node.group_id);
+    }
+
+    for (const node of nodes) {
+      await driver.executeQuery(
+        `
+          MERGE (n:Episodic {uuid: $episode.uuid})
+          SET n += $episode
+          SET n:Episodic
+          RETURN n.uuid AS uuid
+        `,
+        { params: { episode: serializeForCypher(node) } }
+      );
+    }
+  }
+
+  async getByUuids(driver: GraphDriver, uuids: string[]): Promise<EpisodicNode[]> {
+    if (uuids.length === 0) return [];
+
+    const result = await driver.executeQuery<RecordLike>(
+      `
+        MATCH (n:Episodic)
+        WHERE n.uuid IN $uuids
+        RETURN
+          n.uuid AS uuid,
+          n.name AS name,
+          n.group_id AS group_id,
+          coalesce(n.labels, labels(n)) AS labels,
+          n.created_at AS created_at,
+          n.source AS source,
+          n.source_description AS source_description,
+          n.content AS content,
+          n.valid_at AS valid_at,
+          n.entity_edges AS entity_edges
+      `,
+      { params: { uuids }, routing: 'r' }
+    );
+
+    return result.records.map((record) => mapEpisodeNode(record));
+  }
+
   async save(driver: GraphDriver, node: EpisodicNode): Promise<void> {
     validateGroupId(node.group_id);
 

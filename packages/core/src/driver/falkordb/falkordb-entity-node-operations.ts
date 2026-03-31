@@ -8,6 +8,78 @@ import { serializeForCypher } from '../../utils/serialization';
 import type { EntityNodeOperations } from '../operations/entity-node-operations';
 
 export class FalkorEntityNodeOperations implements EntityNodeOperations {
+  async saveBulk(driver: GraphDriver, nodes: EntityNode[]): Promise<void> {
+    if (nodes.length === 0) return;
+
+    for (const node of nodes) {
+      validateGroupId(node.group_id);
+      validateNodeLabels(node.labels);
+    }
+
+    for (const node of nodes) {
+      await driver.executeQuery(
+        `
+          MERGE (n:Entity {uuid: $entity.uuid})
+          SET n += $entity
+          SET n.labels = $labels
+          RETURN n.uuid AS uuid
+        `,
+        {
+          params: {
+            entity: serializeForCypher({ ...node, labels: undefined }),
+            labels: ['Entity', ...node.labels]
+          }
+        }
+      );
+    }
+  }
+
+  async getByUuids(driver: GraphDriver, uuids: string[]): Promise<EntityNode[]> {
+    if (uuids.length === 0) return [];
+
+    const result = await driver.executeQuery<RecordLike>(
+      `
+        MATCH (n:Entity)
+        WHERE n.uuid IN $uuids
+        RETURN
+          n.uuid AS uuid,
+          n.name AS name,
+          n.group_id AS group_id,
+          coalesce(n.labels, labels(n)) AS labels,
+          n.created_at AS created_at,
+          n.name_embedding AS name_embedding,
+          n.summary AS summary,
+          n.attributes AS attributes
+      `,
+      { params: { uuids }, routing: 'r' }
+    );
+
+    return result.records.map((record) => mapEntityNode(record));
+  }
+
+  async getByGroupIds(driver: GraphDriver, groupIds: string[]): Promise<EntityNode[]> {
+    if (groupIds.length === 0) return [];
+
+    const result = await driver.executeQuery<RecordLike>(
+      `
+        MATCH (n:Entity)
+        WHERE n.group_id IN $group_ids
+        RETURN
+          n.uuid AS uuid,
+          n.name AS name,
+          n.group_id AS group_id,
+          coalesce(n.labels, labels(n)) AS labels,
+          n.created_at AS created_at,
+          n.name_embedding AS name_embedding,
+          n.summary AS summary,
+          n.attributes AS attributes
+      `,
+      { params: { group_ids: groupIds }, routing: 'r' }
+    );
+
+    return result.records.map((record) => mapEntityNode(record));
+  }
+
   async save(driver: GraphDriver, node: EntityNode): Promise<void> {
     validateGroupId(node.group_id);
     validateNodeLabels(node.labels);

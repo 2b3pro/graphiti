@@ -159,11 +159,11 @@ Implemented `Graphiti` methods:
 | Method | Status |
 | --- | --- |
 | `save(node)` | Working |
+| `saveBulk(nodes)` | Working |
 | `getByUuid(uuid)` | Working |
+| `getByUuids(uuids)` | Working |
+| `getByGroupIds(groupIds)` | Working |
 | `deleteByGroupId(groupId)` | Working |
-| `saveBulk(nodes)` | Missing |
-| `getByUuids(uuids)` | Missing |
-| `getByGroupIds(groupIds)` | Missing |
 | `deleteByUuids(uuids)` | Missing |
 
 #### `graphiti.nodes.episode`
@@ -171,12 +171,12 @@ Implemented `Graphiti` methods:
 | Method | Status |
 | --- | --- |
 | `save(node)` | Working |
+| `saveBulk(nodes)` | Working |
 | `getByUuid(uuid)` | Working |
+| `getByUuids(uuids)` | Working |
 | `getByGroupIds(groupIds, lastN, referenceTime)` | Working |
 | `deleteByUuid(uuid)` | Working |
 | `deleteByGroupId(groupId)` | Working |
-| `saveBulk(nodes)` | Missing |
-| `getByUuids(uuids)` | Missing |
 | `deleteByUuids(uuids)` | Missing |
 
 #### `graphiti.edges.entity`
@@ -184,11 +184,11 @@ Implemented `Graphiti` methods:
 | Method | Status |
 | --- | --- |
 | `save(edge)` | Working |
+| `saveBulk(edges)` | Working |
 | `getByUuid(uuid)` | Working |
+| `getByUuids(uuids)` | Working |
 | `deleteByUuid(uuid)` | Working |
 | `deleteByGroupId(groupId)` | Working |
-| `saveBulk(edges)` | Missing |
-| `getByUuids(uuids)` | Missing |
 | `deleteByUuids(uuids)` | Missing |
 
 #### `graphiti.edges.episodic`
@@ -196,7 +196,7 @@ Implemented `Graphiti` methods:
 | Method | Status |
 | --- | --- |
 | `save(edge)` | Working |
-| `saveBulk(edges)` | Missing |
+| `saveBulk(edges)` | Working |
 
 ### Search
 
@@ -457,11 +457,11 @@ rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
 
 Current status:
 
-- `314 pass`
-- `42 skip` (integration tests without database connections)
+- `173 pass`
+- `21 skip` (integration tests without database connections)
 - `0 fail`
-- `656 expect() calls`
-- `356 tests across 34 files`
+- `359 expect() calls`
+- `194 tests across 18 files`
 
 Test file inventory:
 
@@ -482,6 +482,7 @@ Test file inventory:
 | core | `neo4j-driver.integration.test.ts` | 21 | Integration (Neo4j) |
 | core | `falkordb-driver.integration.test.ts` | 20 | Integration (FalkorDB) |
 | server | `server.test.ts` | 9 | Unit |
+| core | `batch-operations.test.ts` | 16 | Unit |
 | server | `service.test.ts` | 3 | Unit |
 | shared | `validation.test.ts` | 5 | Unit |
 
@@ -563,12 +564,9 @@ These Python `Graphiti` methods have no TS equivalent:
 
 ### Gap Category 2: Missing Namespace Operations
 
-Batch operations across all namespaces:
+Remaining batch operations:
 
-- `saveBulk()` — nodes.entity, nodes.episode, edges.entity, edges.episodic
-- `getByUuids()` — nodes.entity, nodes.episode, edges.entity
 - `deleteByUuids()` — nodes.entity, nodes.episode, edges.entity
-- `getByGroupIds()` — nodes.entity
 
 Community and saga namespaces:
 
@@ -726,7 +724,9 @@ rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
 
 ### Priority 1: Batch Namespace Operations
 
-Add `getByUuids()` and `saveBulk()` across entity node, episode node, and entity edge namespaces. These are prerequisites for `addEpisodeBulk()` and for efficient `getNodesAndEdgesByEpisode()` (currently does N individual queries).
+Status: done
+
+Added `saveBulk()`, `getByUuids()`, and `getByGroupIds()` across entity node, episode node, entity edge, and episodic edge namespaces. `getNodesAndEdgesByEpisode()` refactored to use batch `getByUuids()`. Only `deleteByUuids()` remains.
 
 ### Priority 2: Additional LLM/Embedder Providers
 
