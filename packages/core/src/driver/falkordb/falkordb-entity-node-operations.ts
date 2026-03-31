@@ -4,7 +4,7 @@ import type { GraphDriver } from '../../contracts';
 import type { EntityNode } from '../../domain/nodes';
 import { mapEntityNode } from '../../namespaces/nodes';
 import { type RecordLike } from '../../utils/records';
-import { serializeForCypher } from '../../utils/serialization';
+import { serializeForFalkor } from '../../utils/serialization';
 import type { EntityNodeOperations } from '../operations/entity-node-operations';
 
 export class FalkorEntityNodeOperations implements EntityNodeOperations {
@@ -26,7 +26,7 @@ export class FalkorEntityNodeOperations implements EntityNodeOperations {
         `,
         {
           params: {
-            entity: serializeForCypher({ ...node, labels: undefined }),
+            entity: serializeForFalkor({ ...node, labels: undefined }),
             labels: ['Entity', ...node.labels]
           }
         }
@@ -93,7 +93,7 @@ export class FalkorEntityNodeOperations implements EntityNodeOperations {
       `,
       {
         params: {
-          entity: serializeForCypher({
+          entity: serializeForFalkor({
             ...node,
             labels: undefined
           }),

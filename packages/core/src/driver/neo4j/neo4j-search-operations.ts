@@ -117,7 +117,7 @@ export class Neo4jSearchOperations implements SearchOperations {
           n.summary AS summary,
           n.attributes AS attributes
         ORDER BY n.name ASC
-        LIMIT $limit
+        LIMIT toInteger($limit)
       `,
       {
         params: {
@@ -157,7 +157,7 @@ export class Neo4jSearchOperations implements SearchOperations {
           e.valid_at AS valid_at,
           e.invalid_at AS invalid_at
         ORDER BY e.name ASC, e.uuid ASC
-        LIMIT $limit
+        LIMIT toInteger($limit)
       `,
       {
         params: {
@@ -206,7 +206,7 @@ export class Neo4jSearchOperations implements SearchOperations {
           n.summary AS summary,
           n.attributes AS attributes
         ORDER BY n.name ASC, n.uuid ASC
-        LIMIT $limit
+        LIMIT toInteger($limit)
       `,
       {
         params: {
@@ -262,7 +262,7 @@ export class Neo4jSearchOperations implements SearchOperations {
           e.valid_at AS valid_at,
           e.invalid_at AS invalid_at
         ORDER BY e.name ASC, e.uuid ASC
-        LIMIT $limit
+        LIMIT toInteger($limit)
       `,
       {
         params: {
@@ -406,7 +406,7 @@ export class Neo4jSearchOperations implements SearchOperations {
           n.valid_at AS valid_at,
           n.entity_edges AS entity_edges
         ORDER BY n.created_at DESC
-        LIMIT $limit
+        LIMIT toInteger($limit)
       `,
       {
         params,
@@ -449,7 +449,7 @@ export class Neo4jSearchOperations implements SearchOperations {
           c.summary AS summary,
           c.name_embedding AS name_embedding,
           c.rank AS rank
-        LIMIT $limit
+        LIMIT toInteger($limit)
       `,
       { params, routing: 'r' }
     );
@@ -485,7 +485,7 @@ export class Neo4jSearchOperations implements SearchOperations {
           c.summary AS summary,
           c.name_embedding AS name_embedding,
           c.rank AS rank
-        LIMIT $limit
+        LIMIT toInteger($limit)
       `,
       { params, routing: 'r' }
     );

@@ -2,7 +2,7 @@ import { validateGroupId } from '@graphiti/shared';
 
 import type { GraphDriver } from '../../contracts';
 import type { EpisodicEdge } from '../../domain/edges';
-import { serializeForCypher } from '../../utils/serialization';
+import { serializeForFalkor } from '../../utils/serialization';
 import type { EpisodicEdgeOperations } from '../operations/episodic-edge-operations';
 
 export class FalkorEpisodicEdgeOperations implements EpisodicEdgeOperations {
@@ -26,7 +26,7 @@ export class FalkorEpisodicEdgeOperations implements EpisodicEdgeOperations {
           params: {
             episode_uuid: edge.source_node_uuid,
             entity_uuid: edge.target_node_uuid,
-            edge: serializeForCypher(edge)
+            edge: serializeForFalkor(edge)
           }
         }
       );
@@ -48,7 +48,7 @@ export class FalkorEpisodicEdgeOperations implements EpisodicEdgeOperations {
         params: {
           episode_uuid: edge.source_node_uuid,
           entity_uuid: edge.target_node_uuid,
-          edge: serializeForCypher(edge)
+          edge: serializeForFalkor(edge)
         }
       }
     );

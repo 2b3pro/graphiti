@@ -4,7 +4,7 @@ import type { GraphDriver } from '../../contracts';
 import type { EntityEdge } from '../../domain/edges';
 import { mapEntityEdge } from '../../namespaces/edges';
 import { type RecordLike } from '../../utils/records';
-import { serializeForCypher } from '../../utils/serialization';
+import { serializeForFalkor } from '../../utils/serialization';
 import type { EntityEdgeOperations } from '../operations/entity-edge-operations';
 
 export class FalkorEntityEdgeOperations implements EntityEdgeOperations {
@@ -28,7 +28,7 @@ export class FalkorEntityEdgeOperations implements EntityEdgeOperations {
           params: {
             source_uuid: edge.source_node_uuid,
             target_uuid: edge.target_node_uuid,
-            edge: serializeForCypher(edge)
+            edge: serializeForFalkor(edge)
           }
         }
       );
@@ -77,7 +77,7 @@ export class FalkorEntityEdgeOperations implements EntityEdgeOperations {
         params: {
           source_uuid: edge.source_node_uuid,
           target_uuid: edge.target_node_uuid,
-          edge: serializeForCypher(edge)
+          edge: serializeForFalkor(edge)
         }
       }
     );

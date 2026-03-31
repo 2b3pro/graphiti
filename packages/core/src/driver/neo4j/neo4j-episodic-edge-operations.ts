@@ -2,6 +2,7 @@ import { validateGroupId } from '@graphiti/shared';
 
 import type { GraphDriver } from '../../contracts';
 import type { EpisodicEdge } from '../../domain/edges';
+import { serializeForCypher } from '../../utils/serialization';
 import type { EpisodicEdgeOperations } from '../operations/episodic-edge-operations';
 
 export class Neo4jEpisodicEdgeOperations implements EpisodicEdgeOperations {
@@ -25,7 +26,7 @@ export class Neo4jEpisodicEdgeOperations implements EpisodicEdgeOperations {
           params: {
             episode_uuid: edge.source_node_uuid,
             entity_uuid: edge.target_node_uuid,
-            edge
+            edge: serializeForCypher(edge)
           }
         }
       );
@@ -47,7 +48,7 @@ export class Neo4jEpisodicEdgeOperations implements EpisodicEdgeOperations {
         params: {
           episode_uuid: edge.source_node_uuid,
           entity_uuid: edge.target_node_uuid,
-          edge
+          edge: serializeForCypher(edge)
         }
       }
     );

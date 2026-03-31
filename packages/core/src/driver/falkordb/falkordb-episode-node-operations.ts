@@ -4,7 +4,7 @@ import type { GraphDriver } from '../../contracts';
 import type { EpisodicNode } from '../../domain/nodes';
 import { mapEpisodeNode } from '../../namespaces/nodes';
 import { type RecordLike } from '../../utils/records';
-import { serializeForCypher } from '../../utils/serialization';
+import { serializeForFalkor } from '../../utils/serialization';
 import type { EpisodeNodeOperations } from '../operations/episode-node-operations';
 
 export class FalkorEpisodeNodeOperations implements EpisodeNodeOperations {
@@ -23,7 +23,7 @@ export class FalkorEpisodeNodeOperations implements EpisodeNodeOperations {
           SET n:Episodic
           RETURN n.uuid AS uuid
         `,
-        { params: { episode: serializeForCypher(node) } }
+        { params: { episode: serializeForFalkor(node) } }
       );
     }
   }
@@ -65,7 +65,7 @@ export class FalkorEpisodeNodeOperations implements EpisodeNodeOperations {
       `,
       {
         params: {
-          episode: serializeForCypher(node)
+          episode: serializeForFalkor(node)
         }
       }
     );

@@ -3,7 +3,7 @@ import { NodeNotFoundError, validateGroupId } from '@graphiti/shared';
 import type { GraphDriver } from '../../contracts';
 import type { CommunityNode } from '../../domain/nodes';
 import { getRecordValue, parseDateValue, type RecordLike } from '../../utils/records';
-import { serializeForCypher } from '../../utils/serialization';
+import { serializeForFalkor } from '../../utils/serialization';
 import type { CommunityNodeOperations } from '../operations/community-node-operations';
 
 function mapRecord(record: RecordLike): CommunityNode {
@@ -32,7 +32,7 @@ export class FalkorCommunityNodeOperations implements CommunityNodeOperations {
       `,
       {
         params: {
-          node: serializeForCypher({
+          node: serializeForFalkor({
             ...node,
             labels: undefined
           }),

@@ -3,7 +3,7 @@ import { EdgeNotFoundError, validateGroupId } from '@graphiti/shared';
 import type { GraphDriver } from '../../contracts';
 import type { CommunityEdge } from '../../domain/edges';
 import { getRecordValue, parseDateValue, type RecordLike } from '../../utils/records';
-import { serializeForCypher } from '../../utils/serialization';
+import { serializeForFalkor } from '../../utils/serialization';
 import type { CommunityEdgeOperations } from '../operations/community-edge-operations';
 
 function mapRecord(record: RecordLike): CommunityEdge {
@@ -33,7 +33,7 @@ export class FalkorCommunityEdgeOperations implements CommunityEdgeOperations {
         params: {
           community_uuid: edge.source_node_uuid,
           member_uuid: edge.target_node_uuid,
-          edge: serializeForCypher(edge)
+          edge: serializeForFalkor(edge)
         }
       }
     );

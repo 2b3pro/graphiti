@@ -288,7 +288,7 @@ export class EpisodeNodeNamespace {
 
     const params: Record<string, unknown> = {
       group_ids: groupIds,
-      limit: lastN
+      limit: Math.trunc(lastN)
     };
     const whereClauses = ['n.group_id IN $group_ids'];
 
@@ -313,7 +313,7 @@ export class EpisodeNodeNamespace {
           n.valid_at AS valid_at,
           n.entity_edges AS entity_edges
         ORDER BY n.created_at DESC
-        LIMIT $limit
+        LIMIT toInteger($limit)
       `,
       { params, routing: 'r' }
     );
@@ -463,10 +463,7 @@ export function mapEntityNode(record: RecordLike): EntityNode {
     created_at: parseDateValue(getRecordValue(record, 'created_at')) ?? new Date(),
     summary: getRecordValue<string>(record, 'summary') ?? '',
     name_embedding: getRecordValue<number[] | null>(record, 'name_embedding') ?? null,
-    attributes:
-      (getRecordValue<Record<string, unknown>>(record, 'attributes') ?? {}) as NonNullable<
-        EntityNode['attributes']
-      >
+    attributes: parseAttributes(getRecordValue(record, 'attributes'))
   };
 }
 
@@ -507,4 +504,20 @@ function resolveEpisodeNodeOps(driver: GraphDriver): EpisodeNodeOperations | und
   }
 
   return undefined;
+}
+
+function parseAttributes(raw: unknown): NonNullable<EntityNode['attributes']> {
+  if (!raw) {
+    return {} as NonNullable<EntityNode['attributes']>;
+  }
+
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) as NonNullable<EntityNode['attributes']>;
+    } catch {
+      return {} as NonNullable<EntityNode['attributes']>;
+    }
+  }
+
+  return raw as NonNullable<EntityNode['attributes']>;
 }
