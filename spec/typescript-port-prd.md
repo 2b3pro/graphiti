@@ -410,7 +410,7 @@ Not implemented:
 | Retrieve episodes by group | Generic query path | Generic query path | Working |
 | Build indices | Yes | Minimal | Working |
 | Add episode bulk | Yes | Yes | Working (basic name dedup) |
-| Build communities | No | No | Missing |
+| Build communities | No | No | Missing (CRUD done, detection algorithm missing) |
 
 ### Search
 
@@ -429,7 +429,7 @@ Not implemented:
 | Cross-encoder reranking | Yes | Yes | Working |
 | Property filters (edge) | Yes | Yes | Working |
 | Parallel search execution | Yes | Yes | Working |
-| Community search | No | No | Missing |
+| Community search | Yes | Yes | Working (BM25 + cosine + reranking) |
 
 ### Server
 
@@ -582,11 +582,9 @@ These Python `Graphiti` methods have no TS equivalent:
 
 ### Gap Category 2: Missing Namespace Operations
 
-Community and saga namespaces:
+Saga and auxiliary edge namespaces:
 
-- `nodes.community` — entire namespace missing
 - `nodes.saga` — entire namespace missing
-- `edges.community` — entire namespace missing
 - `edges.hasEpisode` — entire namespace missing
 - `edges.nextEpisode` — entire namespace missing
 
@@ -602,13 +600,12 @@ OpenAI, Anthropic, and Gemini are implemented. Python supports 7 LLM providers, 
 
 ### Gap Category 4: Community Graph Support
 
-The entire community subsystem is absent:
+Community CRUD and search are implemented. Still missing:
 
-- community node CRUD operations
-- community edge CRUD operations
-- community detection algorithm
-- community summarization via LLM
-- community search operations (configs exist, no backend operations)
+- community detection algorithm (label propagation)
+- community building orchestration (`build_communities()`)
+- community summarization via LLM (hierarchical pair summarization)
+- community name generation via LLM
 
 ### Gap Category 5: Advanced Ingestion
 
@@ -690,13 +687,20 @@ Remaining:
 
 ### Milestone G: Community Graph Support
 
-Status: pending
+Status: in progress (CRUD + search done)
 
-Done means:
+Progress:
 
-- community node/edge CRUD
-- community detection
-- community search backed by real operations
+- community node/edge CRUD operations — done (Neo4j + FalkorDB)
+- community namespaces with batch operations — done
+- community search (fulltext + similarity + reranking) — done
+- Graphiti.communities namespace — done
+
+Remaining:
+
+- community detection algorithm (label propagation)
+- community building with LLM summarization
+- `build_communities()` orchestration method
 
 ## Known Risks
 
@@ -749,9 +753,9 @@ rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
 
 ## Recommended Next Steps
 
-### Priority 1: Community Graph
+### Priority 1: Community Building Algorithm
 
-Port community node/edge operations, detection algorithm, and search. This is a substantial subsystem.
+Community CRUD and search are done. Port the community detection algorithm (label propagation), hierarchical LLM summarization, and `build_communities()` orchestration.
 
 ### Priority 2: Advanced Bulk Deduplication
 
@@ -774,6 +778,10 @@ Added `deleteByUuids()` across entity nodes, episode nodes, and entity edges for
 ### Bulk Ingestion (done)
 
 Added `addEpisodeBulk()` with parallel extraction across all episodes and intra-batch entity name deduplication. Edges are remapped to canonical entity UUIDs after dedup. 2 tests.
+
+### Community Graph CRUD and Search (done)
+
+Added community node/edge CRUD operations (Neo4j + FalkorDB), community namespaces with batch ops, and integrated community search (fulltext + cosine similarity) into the main search pipeline with RRF/MMR/cross-encoder reranking. 7 new files, 1312 lines.
 
 ### Core LLM/Embedder Providers (done)
 
