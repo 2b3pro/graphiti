@@ -477,7 +477,7 @@ Use this exact clean verification flow:
 
 Current status:
 
-- `263 pass` (from `packages/*/src/` — excludes stale dist artifacts)
+- `279 pass` (from `packages/*/src/` — excludes stale dist artifacts)
 - `21 Neo4j integration tests pass` against live Neo4j 5.26
 - `20 FalkorDB integration tests pass` against live FalkorDB
 - `0 fail`
@@ -602,13 +602,15 @@ Saga and auxiliary edge namespaces:
 
 ### Gap Category 3: Provider Coverage
 
-OpenAI, Anthropic, and Gemini are implemented. Python supports 7 LLM providers, 4 embedder providers, and 3 reranker providers. Remaining:
+OpenAI, Anthropic, Gemini, and Ollama are implemented. Python supports 7 LLM providers, 4 embedder providers, and 3 reranker providers. Remaining:
 
 1. Groq LLM client
 2. Azure OpenAI LLM + embedder (enterprise deployments)
-3. Gemini reranker
-4. OpenAI-compatible generic client
-5. Voyage AI embedder
+3. Voyage AI embedder
+
+Done:
+- ~~Gemini reranker~~ — done (direct 0-100 scoring via Gemini API)
+- ~~OpenAI-compatible generic client~~ — done (Ollama LLM + embedder via /v1 endpoint)
 
 ### Gap Category 4: Community Graph Support
 
@@ -763,7 +765,7 @@ find packages -maxdepth 4 -type f -not -path '*/node_modules/*' -not -path '*/di
 
 ### Priority 1: Remaining Providers
 
-Add Groq, Azure OpenAI, and Gemini reranker. The three highest-value providers (OpenAI, Anthropic, Gemini) are done.
+Add Groq, Azure OpenAI, and Voyage AI embedder. OpenAI, Anthropic, Gemini (LLM + embedder + reranker), and Ollama (LLM + embedder) are done.
 
 ## Completed Priorities
 
@@ -786,6 +788,14 @@ Added community node/edge CRUD operations (Neo4j + FalkorDB), community namespac
 ### Core LLM/Embedder Providers (done)
 
 Added AnthropicClient (claude-sonnet-4-6-latest), GeminiClient (gemini-3-flash-preview), and GeminiEmbedder (text-embedding-004). All implement the existing LLMClient/EmbedderClient interfaces with retry logic, rate limit handling, and tracer integration. 21 unit tests.
+
+### Gemini Reranker and Ollama Providers (done)
+
+Added three new provider implementations:
+
+- **Gemini reranker:** Direct 0-100 relevance scoring via Gemini API (no logprobs needed), scores normalized to [0,1], rate limit detection. Default model: `gemini-2.5-flash-lite`. 6 tests.
+- **Ollama LLM client:** OpenAI-compatible wrapper for Ollama's `/v1` endpoint with local-model defaults (16K max_tokens, JSON response format, retry logic). Default model: `llama3.2`. 5 tests.
+- **Ollama embedder:** OpenAI-compatible wrapper for Ollama's `/v1/embeddings` endpoint. Default model: `nomic-embed-text` (768 dimensions). 5 tests.
 
 ### Advanced Bulk Deduplication (done)
 
