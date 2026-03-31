@@ -1,0 +1,28 @@
+import { validateGroupId } from '@graphiti/shared';
+
+import type { GraphDriver } from '../../contracts';
+import type { EpisodicEdge } from '../../domain/edges';
+import type { EpisodicEdgeOperations } from '../operations/episodic-edge-operations';
+
+export class Neo4jEpisodicEdgeOperations implements EpisodicEdgeOperations {
+  async save(driver: GraphDriver, edge: EpisodicEdge): Promise<void> {
+    validateGroupId(edge.group_id);
+
+    await driver.executeQuery(
+      `
+        MATCH (episode:Episodic {uuid: $episode_uuid})
+        MATCH (entity:Entity {uuid: $entity_uuid})
+        MERGE (episode)-[e:MENTIONS {uuid: $edge.uuid}]->(entity)
+        SET e += $edge
+        RETURN e.uuid AS uuid
+      `,
+      {
+        params: {
+          episode_uuid: edge.source_node_uuid,
+          entity_uuid: edge.target_node_uuid,
+          edge
+        }
+      }
+    );
+  }
+}

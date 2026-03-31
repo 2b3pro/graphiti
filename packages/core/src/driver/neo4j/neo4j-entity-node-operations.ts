@@ -1,0 +1,76 @@
+import { NodeNotFoundError, validateGroupId, validateNodeLabels } from '@graphiti/shared';
+
+import type { GraphDriver } from '../../contracts';
+import type { EntityNode } from '../../domain/nodes';
+import { mapEntityNode } from '../../namespaces/nodes';
+import { type RecordLike } from '../../utils/records';
+import { serializeForCypher } from '../../utils/serialization';
+import type { EntityNodeOperations } from '../operations/entity-node-operations';
+
+export class Neo4jEntityNodeOperations implements EntityNodeOperations {
+  async save(driver: GraphDriver, node: EntityNode): Promise<void> {
+    validateGroupId(node.group_id);
+    validateNodeLabels(node.labels);
+
+    const labelClause = ['Entity', ...node.labels].map((label) => `n:${label}`).join(', ');
+
+    await driver.executeQuery(
+      `
+        MERGE (n:Entity {uuid: $entity.uuid})
+        SET n += $entity
+        SET ${labelClause}
+        SET n.labels = $labels
+        RETURN n.uuid AS uuid
+      `,
+      {
+        params: {
+          entity: serializeForCypher({
+            ...node,
+            labels: undefined
+          }),
+          labels: node.labels
+        }
+      }
+    );
+  }
+
+  async getByUuid(driver: GraphDriver, uuid: string): Promise<EntityNode> {
+    const result = await driver.executeQuery<RecordLike>(
+      `
+        MATCH (n:Entity {uuid: $uuid})
+        RETURN
+          n.uuid AS uuid,
+          n.name AS name,
+          n.group_id AS group_id,
+          coalesce(n.labels, labels(n)) AS labels,
+          n.created_at AS created_at,
+          n.name_embedding AS name_embedding,
+          n.summary AS summary,
+          n.attributes AS attributes
+      `,
+      { params: { uuid }, routing: 'r' }
+    );
+
+    const record = result.records[0];
+    if (!record) {
+      throw new NodeNotFoundError(uuid);
+    }
+
+    return mapEntityNode(record);
+  }
+
+  async deleteByGroupId(driver: GraphDriver, groupId: string): Promise<void> {
+    validateGroupId(groupId);
+
+    await driver.executeQuery(
+      `
+        MATCH (n:Entity)
+        WHERE n.group_id = $group_id
+        WITH collect(n) AS nodes
+        FOREACH (node IN nodes | DETACH DELETE node)
+        RETURN size(nodes) AS deleted_count
+      `,
+      { params: { group_id: groupId } }
+    );
+  }
+}

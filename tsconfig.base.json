@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@graphiti/shared": ["packages/shared/src/index.ts"],
+      "@graphiti/core": ["packages/core/src/index.ts"],
+      "@graphiti/server": ["packages/server/src/index.ts"],
+      "@graphiti/mcp": ["packages/mcp/src/index.ts"],
+      "@graphiti/testkit": ["packages/testkit/src/index.ts"]
+    },
+    "allowJs": false,
+    "strict": true,
+    "noEmitOnError": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "useUnknownInCatchVariables": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "incremental": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}

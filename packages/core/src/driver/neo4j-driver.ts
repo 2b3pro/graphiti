@@ -1,0 +1,338 @@
+import { GraphProviders } from '@graphiti/shared';
+import neo4j, {
+  auth as neo4jAuth,
+  routing as neo4jRouting,
+  type Driver as OfficialNeo4jDriver,
+  type EagerResult,
+  type QueryResult as OfficialQueryResult,
+  type Session as OfficialSession,
+  type Transaction as OfficialTransaction
+} from 'neo4j-driver';
+
+import type {
+  AsyncDisposableTransaction,
+  GraphDriverSession,
+  QueryOptions,
+  QueryResult
+} from '../contracts';
+import { BaseGraphDriver } from './graph-driver';
+import { Neo4jEntityEdgeOperations } from './neo4j/neo4j-entity-edge-operations';
+import { Neo4jEntityNodeOperations } from './neo4j/neo4j-entity-node-operations';
+import { Neo4jEpisodeNodeOperations } from './neo4j/neo4j-episode-node-operations';
+import { Neo4jEpisodicEdgeOperations } from './neo4j/neo4j-episodic-edge-operations';
+import { Neo4jSearchOperations } from './neo4j/neo4j-search-operations';
+import type { EntityEdgeOperations } from './operations/entity-edge-operations';
+import type { EntityNodeOperations } from './operations/entity-node-operations';
+import type { EpisodeNodeOperations } from './operations/episode-node-operations';
+import type { EpisodicEdgeOperations } from './operations/episodic-edge-operations';
+import type { SearchOperations } from './operations/search-operations';
+
+export interface Neo4jConnectionConfig {
+  uri: string;
+  user: string | null;
+  password: string | null;
+  database?: string;
+}
+
+export interface Neo4jClientAdapter {
+  executeQuery<RecordShape = unknown>(
+    query: string,
+    options: {
+      parameters: Record<string, unknown>;
+      database: string;
+      routing?: 'r' | 'w';
+    }
+  ): Promise<QueryResult<RecordShape>>;
+  session(database: string): GraphDriverSession;
+  close(): Promise<void>;
+  verifyConnectivity?(): Promise<void>;
+}
+
+export interface Neo4jOperationsRegistry {
+  entity_node_ops?: EntityNodeOperations;
+  episode_node_ops?: EpisodeNodeOperations;
+  community_node_ops?: object;
+  saga_node_ops?: object;
+  entity_edge_ops?: EntityEdgeOperations;
+  episodic_edge_ops?: EpisodicEdgeOperations;
+  community_edge_ops?: object;
+  has_episode_edge_ops?: object;
+  next_episode_edge_ops?: object;
+  search_ops?: SearchOperations;
+  graph_ops?: object;
+}
+
+export class Neo4jDriver extends BaseGraphDriver {
+  readonly provider = GraphProviders.NEO4J;
+  readonly default_group_id = '';
+  readonly config: Neo4jConnectionConfig;
+  readonly client: Neo4jClientAdapter;
+  readonly operations: Neo4jOperationsRegistry;
+  readonly entityNodeOps: EntityNodeOperations;
+  readonly episodeNodeOps: EpisodeNodeOperations;
+  readonly entityEdgeOps: EntityEdgeOperations;
+  readonly episodicEdgeOps: EpisodicEdgeOperations;
+  readonly searchOps: SearchOperations;
+
+  constructor(
+    config: Neo4jConnectionConfig,
+    client: Neo4jClientAdapter,
+    operations: Neo4jOperationsRegistry = {}
+  ) {
+    super(config.database ?? 'neo4j');
+    this.config = {
+      ...config,
+      database: config.database ?? 'neo4j'
+    };
+    this.client = client;
+    this.operations = operations;
+    this.entityNodeOps = operations.entity_node_ops ?? new Neo4jEntityNodeOperations();
+    this.episodeNodeOps = operations.episode_node_ops ?? new Neo4jEpisodeNodeOperations();
+    this.entityEdgeOps = operations.entity_edge_ops ?? new Neo4jEntityEdgeOperations();
+    this.episodicEdgeOps = operations.episodic_edge_ops ?? new Neo4jEpisodicEdgeOperations();
+    this.searchOps = operations.search_ops ?? new Neo4jSearchOperations();
+  }
+
+  async executeQuery<RecordShape = unknown>(
+    cypherQuery: string,
+    options: QueryOptions = {}
+  ): Promise<QueryResult<RecordShape>> {
+    const parameters = options.params ?? {};
+    const database = options.database ?? this.database;
+    const executionOptions: {
+      parameters: Record<string, unknown>;
+      database: string;
+      routing?: 'r' | 'w';
+    } = {
+      parameters,
+      database
+    };
+
+    if (options.routing) {
+      executionOptions.routing = options.routing;
+    }
+
+    return this.client.executeQuery<RecordShape>(cypherQuery, executionOptions);
+  }
+
+  session(database?: string): GraphDriverSession {
+    return this.client.session(database ?? this.database);
+  }
+
+  async transaction(): Promise<AsyncDisposableTransaction> {
+    const session = this.client.session(this.database);
+
+    if (session instanceof Neo4jSessionAdapter) {
+      return session.beginTransaction();
+    }
+
+    return new SessionBackedTransaction(session);
+  }
+
+  async close(): Promise<void> {
+    await this.client.close();
+  }
+
+  async deleteAllIndexes(): Promise<void> {
+    const result = await this.executeQuery<{ name: string }>(
+      'SHOW INDEXES YIELD name RETURN name',
+      { routing: 'r' }
+    );
+
+    for (const record of result.records) {
+      const recordWithGetter = record as { get?: (key: string) => unknown };
+      const name =
+        typeof recordWithGetter.get === 'function'
+          ? (recordWithGetter.get('name') as string)
+          : ((record as { name?: string }).name ?? '');
+
+      if (name) {
+        await this.executeQuery(`DROP INDEX ${name}`);
+      }
+    }
+  }
+
+  async buildIndicesAndConstraints(deleteExisting = false): Promise<void> {
+    if (deleteExisting) {
+      await this.deleteAllIndexes();
+    }
+
+    const queries = [
+      'CREATE CONSTRAINT entity_uuid IF NOT EXISTS FOR (n:Entity) REQUIRE n.uuid IS UNIQUE',
+      'CREATE CONSTRAINT episodic_uuid IF NOT EXISTS FOR (n:Episodic) REQUIRE n.uuid IS UNIQUE',
+      'CREATE INDEX entity_group_id IF NOT EXISTS FOR (n:Entity) ON (n.group_id)',
+      'CREATE INDEX episodic_group_id IF NOT EXISTS FOR (n:Episodic) ON (n.group_id)',
+      'CREATE INDEX entity_name IF NOT EXISTS FOR (n:Entity) ON (n.name)',
+      'CREATE INDEX episodic_name IF NOT EXISTS FOR (n:Episodic) ON (n.name)',
+      'CREATE INDEX entity_edge_uuid IF NOT EXISTS FOR ()-[e:RELATES_TO]-() ON (e.uuid)',
+      'CREATE INDEX episodic_edge_uuid IF NOT EXISTS FOR ()-[e:MENTIONS]-() ON (e.uuid)'
+    ];
+
+    for (const query of queries) {
+      await this.executeQuery(query);
+    }
+  }
+
+  async healthCheck(): Promise<void> {
+    if (this.client.verifyConnectivity) {
+      await this.client.verifyConnectivity();
+    }
+  }
+}
+
+class SessionBackedTransaction implements AsyncDisposableTransaction {
+  private readonly session: GraphDriverSession;
+
+  constructor(session: GraphDriverSession) {
+    this.session = session;
+  }
+
+  async run<RecordShape = unknown>(
+    query: string,
+    params: Record<string, unknown> = {}
+  ): Promise<QueryResult<RecordShape>> {
+    return this.session.executeQuery<RecordShape>(query, { params });
+  }
+
+  async commit(): Promise<void> {
+    await this.session.close();
+  }
+
+  async rollback(): Promise<void> {
+    await this.session.close();
+  }
+}
+
+export function createNeo4jClientAdapter(
+  config: Neo4jConnectionConfig
+): Neo4jClientAdapter {
+  const driver = neo4j.driver(
+    config.uri,
+    neo4jAuth.basic(config.user ?? '', config.password ?? '')
+  );
+
+  return new OfficialNeo4jClientAdapter(driver);
+}
+
+class OfficialNeo4jClientAdapter implements Neo4jClientAdapter {
+  private readonly driver: OfficialNeo4jDriver;
+
+  constructor(driver: OfficialNeo4jDriver) {
+    this.driver = driver;
+  }
+
+  async executeQuery<RecordShape = unknown>(
+    query: string,
+    options: {
+      parameters: Record<string, unknown>;
+      database: string;
+      routing?: 'r' | 'w';
+    }
+  ): Promise<QueryResult<RecordShape>> {
+    const result = await this.driver.executeQuery<EagerResult>(
+      query,
+      options.parameters,
+      {
+        database: options.database,
+        routing:
+          options.routing === 'r' ? neo4jRouting.READ : neo4jRouting.WRITE
+      }
+    );
+
+    return normalizeEagerResult<RecordShape>(result);
+  }
+
+  session(database: string): GraphDriverSession {
+    return new Neo4jSessionAdapter(this.driver.session({ database }));
+  }
+
+  async close(): Promise<void> {
+    await this.driver.close();
+  }
+
+  async verifyConnectivity(): Promise<void> {
+    await this.driver.verifyConnectivity();
+  }
+}
+
+class Neo4jSessionAdapter implements GraphDriverSession {
+  private readonly session: OfficialSession;
+
+  constructor(session: OfficialSession) {
+    this.session = session;
+  }
+
+  async executeQuery<RecordShape = unknown>(
+    cypherQuery: string,
+    options: QueryOptions = {}
+  ): Promise<QueryResult<RecordShape>> {
+    const result = await this.session.run<Record<string, unknown>>(
+      cypherQuery,
+      options.params ?? {}
+    );
+
+    return normalizeSessionResult<RecordShape>(result);
+  }
+
+  async close(): Promise<void> {
+    await this.session.close();
+  }
+
+  async beginTransaction(): Promise<AsyncDisposableTransaction> {
+    const transaction = await this.session.beginTransaction();
+    return new Neo4jTransactionAdapter(transaction, this.session);
+  }
+}
+
+class Neo4jTransactionAdapter implements AsyncDisposableTransaction {
+  private readonly transaction: OfficialTransaction;
+  private readonly session: OfficialSession;
+
+  constructor(transaction: OfficialTransaction, session: OfficialSession) {
+    this.transaction = transaction;
+    this.session = session;
+  }
+
+  async run<RecordShape = unknown>(
+    query: string,
+    params: Record<string, unknown> = {}
+  ): Promise<QueryResult<RecordShape>> {
+    const result = await this.transaction.run<Record<string, unknown>>(query, params);
+    return normalizeSessionResult<RecordShape>(result);
+  }
+
+  async commit(): Promise<void> {
+    try {
+      await this.transaction.commit();
+    } finally {
+      await this.session.close();
+    }
+  }
+
+  async rollback(): Promise<void> {
+    try {
+      await this.transaction.rollback();
+    } finally {
+      await this.session.close();
+    }
+  }
+}
+
+function normalizeEagerResult<RecordShape>(
+  result: EagerResult
+): QueryResult<RecordShape> {
+  return {
+    records: result.records as RecordShape[],
+    summary: result.summary,
+    keys: result.keys
+  };
+}
+
+function normalizeSessionResult<RecordShape>(
+  result: OfficialQueryResult<Record<string, unknown>>
+): QueryResult<RecordShape> {
+  return {
+    records: result.records as RecordShape[],
+    summary: result.summary
+  };
+}

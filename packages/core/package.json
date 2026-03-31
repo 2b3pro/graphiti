@@ -1,0 +1,15 @@
+{
+  "name": "@graphiti/core",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@graphiti/shared": "workspace:*",
+    "falkordb": "^6.6.2",
+    "neo4j-driver": "^6.0.1"
+  }
+}

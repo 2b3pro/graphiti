@@ -1,0 +1,23 @@
+{
+  "name": "graphiti",
+  "private": true,
+  "packageManager": "bun@1.2.8",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "bunx tsc -b",
+    "typecheck": "bunx tsc -b --pretty false",
+    "test": "bun test",
+    "test:packages": "bash -lc 'set -a; [ -f ./.env.test ] && . ./.env.test; set +a; ~/.bun/bin/bun test packages'",
+    "test:neo4j": "bash -lc 'source ~/.profile >/dev/null 2>&1; set -a; [ -f ./.env.test ] && . ./.env.test; set +a; ~/.bun/bin/bun test packages/core/src/driver/neo4j-driver.integration.test.ts'",
+    "test:falkor": "bash -lc 'source ~/.profile >/dev/null 2>&1; set -a; [ -f ./.env.test ] && . ./.env.test; set +a; ~/.bun/bin/bun test packages/core/src/driver/falkordb-driver.integration.test.ts'",
+    "falkor:up": "docker compose --profile falkordb up -d falkordb",
+    "falkor:down": "docker compose --profile falkordb down",
+    "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.8",
+    "typescript": "^5.8.3"
+  }
+}
