@@ -25,6 +25,8 @@ export * from './driver/operations/community-node-operations';
 export * from './driver/operations/episodic-edge-operations';
 export * from './driver/query-executor';
 export * from './community/community-operations';
+export * from './dedup/dedup-helpers';
+export * from './dedup/union-find';
 export * from './community/prompts';
 export * from './graphiti';
 export * from './ingest/extractor';

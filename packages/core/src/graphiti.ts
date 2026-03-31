@@ -29,6 +29,13 @@ import {
 } from './ingest/hydrator';
 import { resolveEpisodeExtraction } from './ingest/resolver';
 import {
+  normalizeStringExact,
+  buildCandidateIndexes,
+  resolveWithSimilarity,
+  type DedupResolutionState
+} from './dedup/dedup-helpers';
+import { buildDirectedUuidMap } from './dedup/union-find';
+import {
   buildCommunities as buildCommunitiesOp,
   removeCommunities,
   updateCommunity as updateCommunityOp
@@ -321,22 +328,39 @@ export class Graphiti {
       })
     );
 
-    // Phase 2: Intra-batch entity name deduplication
-    const uuidMap = new Map<string, string>();
-    const canonicalEntities = new Map<string, EntityNode>();
+    // Phase 2: Intra-batch entity deduplication (exact + fuzzy MinHash/LSH)
+    const seenEntities = new Map<string, EntityNode>(); // uuid → entity (first occurrence)
+    const allBatchEntities: EntityNode[] = [];
 
     for (const { resolvedExtraction } of extractionResults) {
       for (const entity of resolvedExtraction.entities) {
-        const normalizedName = entity.name.trim().toLowerCase();
-        const existing = canonicalEntities.get(normalizedName);
-
-        if (existing && existing.uuid !== entity.uuid) {
-          uuidMap.set(entity.uuid, existing.uuid);
-        } else if (!existing) {
-          canonicalEntities.set(normalizedName, entity);
+        if (!seenEntities.has(entity.uuid)) {
+          seenEntities.set(entity.uuid, entity);
+          allBatchEntities.push(entity);
         }
       }
     }
+
+    // Build candidate indexes from all unique batch entities and resolve fuzzy matches
+    const indexes = buildCandidateIndexes(allBatchEntities);
+    const state: DedupResolutionState = {
+      resolvedNodes: new Array(allBatchEntities.length).fill(null),
+      uuidMap: new Map(),
+      unresolvedIndices: [],
+      duplicatePairs: []
+    };
+    resolveWithSimilarity(allBatchEntities, indexes, state);
+
+    // Compress transitive chains via union-find
+    const unionPairs: [string, string][] = [];
+    for (const [source, target] of state.uuidMap) {
+      if (source !== target) {
+        unionPairs.push([source, target]);
+      }
+    }
+    const uuidMap = unionPairs.length > 0
+      ? buildDirectedUuidMap(unionPairs)
+      : new Map<string, string>();
 
     // Phase 3: Apply UUID remapping and persist
     const results: IngestEpisodeResult[] = [];
