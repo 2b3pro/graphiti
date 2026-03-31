@@ -7,5 +7,6 @@ export interface EpisodeNodeOperations {
   getByUuid(driver: GraphDriver, uuid: string): Promise<EpisodicNode>;
   getByUuids(driver: GraphDriver, uuids: string[]): Promise<EpisodicNode[]>;
   deleteByUuid(driver: GraphDriver, uuid: string): Promise<void>;
+  deleteByUuids(driver: GraphDriver, uuids: string[]): Promise<void>;
   deleteByGroupId(driver: GraphDriver, groupId: string): Promise<void>;
 }

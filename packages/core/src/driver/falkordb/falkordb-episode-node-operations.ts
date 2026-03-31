@@ -114,6 +114,21 @@ export class FalkorEpisodeNodeOperations implements EpisodeNodeOperations {
     }
   }
 
+  async deleteByUuids(driver: GraphDriver, uuids: string[]): Promise<void> {
+    if (uuids.length === 0) return;
+
+    await driver.executeQuery(
+      `
+        MATCH (n:Episodic)
+        WHERE n.uuid IN $uuids
+        WITH collect(n) AS nodes
+        FOREACH (node IN nodes | DETACH DELETE node)
+        RETURN size(nodes) AS deleted_count
+      `,
+      { params: { uuids } }
+    );
+  }
+
   async deleteByGroupId(driver: GraphDriver, groupId: string): Promise<void> {
     validateGroupId(groupId);
 

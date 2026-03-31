@@ -7,5 +7,6 @@ export interface EntityNodeOperations {
   getByUuid(driver: GraphDriver, uuid: string): Promise<EntityNode>;
   getByUuids(driver: GraphDriver, uuids: string[]): Promise<EntityNode[]>;
   getByGroupIds(driver: GraphDriver, groupIds: string[]): Promise<EntityNode[]>;
+  deleteByUuids(driver: GraphDriver, uuids: string[]): Promise<void>;
   deleteByGroupId(driver: GraphDriver, groupId: string): Promise<void>;
 }

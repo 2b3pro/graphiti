@@ -274,6 +274,107 @@ export class Graphiti {
     };
   }
 
+  async addEpisodeBulk(
+    inputs: IngestEpisodeInput[]
+  ): Promise<IngestEpisodesResult> {
+    if (inputs.length === 0) {
+      return { episodes: [] };
+    }
+
+    const orderedInputs = [...inputs].sort((left, right) => {
+      const leftTime = left.episode.valid_at ?? left.episode.created_at;
+      const rightTime = right.episode.valid_at ?? right.episode.created_at;
+      const timeDifference = leftTime.getTime() - rightTime.getTime();
+      return timeDifference !== 0 ? timeDifference : left.episode.uuid.localeCompare(right.episode.uuid);
+    });
+
+    // Phase 1: Parallel extraction across all episodes
+    const extractionResults = await Promise.all(
+      orderedInputs.map(async (input) => {
+        const referenceTime = input.episode.valid_at ?? input.episode.created_at;
+        const previousEpisodes = await this.retrieveEpisodes(
+          [input.episode.group_id],
+          input.previous_episode_count ?? 5,
+          referenceTime
+        );
+        const extraction = await this.episode_extractor.extract({
+          episode: input.episode,
+          previous_episodes: previousEpisodes.filter(
+            (ep) => ep.uuid !== input.episode.uuid
+          )
+        });
+        await this.enrichExtractionEmbeddings(extraction);
+        const resolvedExtraction = await resolveEpisodeExtraction(
+          this.driver,
+          input.episode,
+          extraction
+        );
+        return { input, previousEpisodes, resolvedExtraction };
+      })
+    );
+
+    // Phase 2: Intra-batch entity name deduplication
+    const uuidMap = new Map<string, string>();
+    const canonicalEntities = new Map<string, EntityNode>();
+
+    for (const { resolvedExtraction } of extractionResults) {
+      for (const entity of resolvedExtraction.entities) {
+        const normalizedName = entity.name.trim().toLowerCase();
+        const existing = canonicalEntities.get(normalizedName);
+
+        if (existing && existing.uuid !== entity.uuid) {
+          uuidMap.set(entity.uuid, existing.uuid);
+        } else if (!existing) {
+          canonicalEntities.set(normalizedName, entity);
+        }
+      }
+    }
+
+    // Phase 3: Apply UUID remapping and persist
+    const results: IngestEpisodeResult[] = [];
+
+    for (const { input, previousEpisodes, resolvedExtraction } of extractionResults) {
+      const remappedEntities = resolvedExtraction.entities.filter(
+        (entity) => !uuidMap.has(entity.uuid)
+      );
+
+      const allEdges = [
+        ...resolvedExtraction.entity_edges,
+        ...resolvedExtraction.invalidated_edges
+      ];
+      for (const edge of allEdges) {
+        edge.source_node_uuid = uuidMap.get(edge.source_node_uuid) ?? edge.source_node_uuid;
+        edge.target_node_uuid = uuidMap.get(edge.target_node_uuid) ?? edge.target_node_uuid;
+      }
+
+      const hydratedEntities = await this.node_hydrator.hydrate({
+        episode: input.episode,
+        previous_episodes: previousEpisodes,
+        entities: remappedEntities,
+        entity_edges: allEdges
+      });
+
+      input.episode.entity_edges = allEdges.map((edge) => edge.uuid);
+
+      const result = await this.addEpisode({
+        episode: input.episode,
+        entities: hydratedEntities,
+        entity_edges: allEdges
+      });
+
+      results.push({
+        ...result,
+        previous_episodes: previousEpisodes,
+        extraction: {
+          entities: hydratedEntities,
+          entity_edges: allEdges
+        }
+      });
+    }
+
+    return { episodes: results };
+  }
+
   async retrieveEpisodes(
     groupIds: string[],
     lastN = 10,

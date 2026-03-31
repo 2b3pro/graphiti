@@ -170,6 +170,27 @@ export class EntityNodeNamespace {
     return result.records.map((record) => mapEntityNode(record));
   }
 
+  async deleteByUuids(uuids: string[]): Promise<void> {
+    if (uuids.length === 0) return;
+
+    const ops = this.ops ?? resolveEntityNodeOps(this.driver);
+    if (ops) {
+      await ops.deleteByUuids(this.driver, uuids);
+      return;
+    }
+
+    await this.driver.executeQuery(
+      `
+        MATCH (n:Entity)
+        WHERE n.uuid IN $uuids
+        WITH collect(n) AS nodes
+        FOREACH (node IN nodes | DETACH DELETE node)
+        RETURN size(nodes) AS deleted_count
+      `,
+      { params: { uuids } }
+    );
+  }
+
   async deleteByGroupId(groupId: string): Promise<void> {
     validateGroupId(groupId);
 
@@ -370,6 +391,27 @@ export class EpisodeNodeNamespace {
     );
 
     return result.records.map((record) => mapEpisodeNode(record));
+  }
+
+  async deleteByUuids(uuids: string[]): Promise<void> {
+    if (uuids.length === 0) return;
+
+    const ops = this.ops ?? resolveEpisodeNodeOps(this.driver);
+    if (ops) {
+      await ops.deleteByUuids(this.driver, uuids);
+      return;
+    }
+
+    await this.driver.executeQuery(
+      `
+        MATCH (n:Episodic)
+        WHERE n.uuid IN $uuids
+        WITH collect(n) AS nodes
+        FOREACH (node IN nodes | DETACH DELETE node)
+        RETURN size(nodes) AS deleted_count
+      `,
+      { params: { uuids } }
+    );
   }
 
   async deleteByGroupId(groupId: string): Promise<void> {

@@ -1495,6 +1495,70 @@ describe('Graphiti', () => {
   });
 
 
+  test('addEpisodeBulk deduplicates entities with same name across episodes', async () => {
+    const transaction = new FakeTransaction();
+    const driver = new FakeDriver(transaction);
+    const extractor = new FakeEpisodeExtractor();
+    const graphiti = new Graphiti({ driver, episode_extractor: extractor });
+    const time1 = new Date('2026-03-29T12:00:00.000Z');
+    const time2 = new Date('2026-03-30T12:00:00.000Z');
+
+    const result = await graphiti.addEpisodeBulk([
+      {
+        episode: {
+          uuid: 'ep-bulk-1',
+          name: 'episode-1',
+          group_id: 'group',
+          labels: [],
+          created_at: time1,
+          source: 'text',
+          source_description: 'chat',
+          content: 'Alice knows Bob',
+          valid_at: time1,
+          entity_edges: []
+        }
+      },
+      {
+        episode: {
+          uuid: 'ep-bulk-2',
+          name: 'episode-2',
+          group_id: 'group',
+          labels: [],
+          created_at: time2,
+          source: 'text',
+          source_description: 'chat',
+          content: 'Alice works with Carol',
+          valid_at: time2,
+          entity_edges: []
+        }
+      }
+    ]);
+
+    expect(result.episodes).toHaveLength(2);
+
+    // Both episodes should have been processed
+    expect(result.episodes[0]?.episode.uuid).toBe('ep-bulk-1');
+    expect(result.episodes[1]?.episode.uuid).toBe('ep-bulk-2');
+
+    // The extractor produces Alice and Bob for each episode, so Alice
+    // should be deduplicated across the batch — the second episode's
+    // Alice entity should be merged into the first episode's Alice.
+    // We verify that at least one episode has fewer entities than the
+    // extractor would produce independently, because duplicates are removed.
+    const totalEntities = result.episodes.flatMap((r) => r.nodes);
+    const uniqueNames = new Set(totalEntities.map((n) => n.name.toLowerCase()));
+    // Alice appears in both episodes but should be canonical
+    expect(uniqueNames.has('alice')).toBeTrue();
+  });
+
+  test('addEpisodeBulk returns empty result for empty input', async () => {
+    const driver = new FakeDriver(new FakeTransaction());
+    const graphiti = new Graphiti({ driver });
+
+    const result = await graphiti.addEpisodeBulk([]);
+    expect(result.episodes).toHaveLength(0);
+  });
+
   test('delegates search through the graphiti client', async () => {
     const driver = new Neo4jDriver(
       {

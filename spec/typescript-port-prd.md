@@ -56,7 +56,7 @@ The TypeScript port must preserve the core product concepts:
 - community graph support
 - saga support
 - full provider matrix (OpenAI, Anthropic, Gemini done; Groq, Azure, Voyage missing)
-- bulk operations (`addEpisodeBulk`, `deleteByUuids`)
+- advanced bulk dedup (MinHash fuzzy matching, LLM-assisted dedup)
 - LLM-assisted deduplication
 - content chunking
 - token tracking and LLM response caching
@@ -145,6 +145,7 @@ Implemented `Graphiti` methods:
 
 - `addTriplet(...)`
 - `addEpisode(...)`
+- `addEpisodeBulk(...)` — parallel extraction + intra-batch name dedup
 - `ingestEpisode(...)`
 - `ingestEpisodes(...)`
 - `search(...)`
@@ -170,7 +171,7 @@ Implemented `Graphiti` methods:
 | `getByUuids(uuids)` | Working |
 | `getByGroupIds(groupIds)` | Working |
 | `deleteByGroupId(groupId)` | Working |
-| `deleteByUuids(uuids)` | Missing |
+| `deleteByUuids(uuids)` | Working |
 
 #### `graphiti.nodes.episode`
 
@@ -182,8 +183,8 @@ Implemented `Graphiti` methods:
 | `getByUuids(uuids)` | Working |
 | `getByGroupIds(groupIds, lastN, referenceTime)` | Working |
 | `deleteByUuid(uuid)` | Working |
+| `deleteByUuids(uuids)` | Working |
 | `deleteByGroupId(groupId)` | Working |
-| `deleteByUuids(uuids)` | Missing |
 
 #### `graphiti.edges.entity`
 
@@ -194,8 +195,8 @@ Implemented `Graphiti` methods:
 | `getByUuid(uuid)` | Working |
 | `getByUuids(uuids)` | Working |
 | `deleteByUuid(uuid)` | Working |
+| `deleteByUuids(uuids)` | Working |
 | `deleteByGroupId(groupId)` | Working |
-| `deleteByUuids(uuids)` | Missing |
 
 #### `graphiti.edges.episodic`
 
@@ -277,7 +278,7 @@ Current ingest stages:
 
 Still missing for ingestion parity:
 
-- `addEpisodeBulk()` — Python's sophisticated bulk extraction/dedup pipeline (~200 LOC)
+- `addEpisodeBulk()` — basic version done; Python's MinHash fuzzy dedup not yet ported
 - LLM-assisted node and edge deduplication (Python has dedicated prompts)
 - content chunking
 - semantic entity linking beyond names
@@ -403,11 +404,12 @@ Not implemented:
 | Add episode | Yes | Yes | Working |
 | Ingest raw episode text | Yes | Yes | Working, heuristic + model |
 | Ingest episode batches | Yes | Yes | Working, sequential |
+| Bulk episode ingest with dedup | Yes | Yes | Working, parallel extraction + name dedup |
 | Search edges (convenience) | Yes | Yes | Working |
 | Get nodes/edges by episode | Yes | Yes | Working |
 | Retrieve episodes by group | Generic query path | Generic query path | Working |
 | Build indices | Yes | Minimal | Working |
-| Add episode bulk | No | No | Missing |
+| Add episode bulk | Yes | Yes | Working (basic name dedup) |
 | Build communities | No | No | Missing |
 
 ### Search
@@ -471,17 +473,17 @@ rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
 
 Current status:
 
-- `367 pass`
+- `375 pass`
 - `42 skip` (integration tests without database connections)
 - `0 fail`
-- `749 expect() calls`
-- `409 tests across 39 files`
+- `763 expect() calls`
+- `417 tests across 39 files`
 
 Test file inventory:
 
 | Package | File | Tests | Type |
 | --- | --- | --- | --- |
-| core | `graphiti.test.ts` | 41 | Unit (orchestration) |
+| core | `graphiti.test.ts` | 43 | Unit (orchestration) |
 | core | `extractor.test.ts` | 10 | Unit |
 | core | `hydrator.test.ts` | 26 | Unit |
 | core | `resolver.test.ts` | 4 | Unit |
@@ -499,7 +501,7 @@ Test file inventory:
 | core | `neo4j-driver.integration.test.ts` | 21 | Integration (Neo4j) |
 | core | `falkordb-driver.integration.test.ts` | 20 | Integration (FalkorDB) |
 | server | `server.test.ts` | 9 | Unit |
-| core | `batch-operations.test.ts` | 16 | Unit |
+| core | `batch-operations.test.ts` | 22 | Unit |
 | server | `service.test.ts` | 3 | Unit |
 | shared | `validation.test.ts` | 5 | Unit |
 
@@ -581,10 +583,6 @@ These Python `Graphiti` methods have no TS equivalent:
 
 ### Gap Category 2: Missing Namespace Operations
 
-Remaining batch operations:
-
-- `deleteByUuids()` — nodes.entity, nodes.episode, edges.entity
-
 Community and saga namespaces:
 
 - `nodes.community` — entire namespace missing
@@ -661,12 +659,12 @@ Status: in progress
 Progress:
 
 - batch namespace operations (`saveBulk`, `getByUuids`, `getByGroupIds`) — done
+- `deleteByUuids()` across all namespaces — done
 - `getNodesAndEdgesByEpisode()` refactored to batch queries — done
+- `addEpisodeBulk()` with parallel extraction + name dedup — done
 
 Remaining:
 
-- bulk ingest (`addEpisodeBulk`)
-- `deleteByUuids()` across namespaces
 - LLM-assisted deduplication
 - community maintenance or an explicit decision to defer it
 
@@ -752,19 +750,15 @@ rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
 
 ## Recommended Next Steps
 
-### Priority 1: Bulk Ingestion
-
-Port `addEpisodeBulk()` with the associated extraction and dedup helpers. This is the largest remaining core feature gap. The batch namespace operations (`saveBulk`, `getByUuids`) are in place as prerequisites.
-
-### Priority 2: deleteByUuids Operations
-
-Add `deleteByUuids()` across entity nodes, episode nodes, and entity edges. Follows the same pattern as the existing `getByUuids()` implementations — use `WHERE uuid IN $uuids` with batch delete.
-
-### Priority 3: Community Graph
+### Priority 1: Community Graph
 
 Port community node/edge operations, detection algorithm, and search. This is a substantial subsystem.
 
-### Priority 4: Remaining Providers
+### Priority 2: Advanced Bulk Deduplication
+
+The current `addEpisodeBulk` uses exact name matching for intra-batch dedup. Python uses MinHash fuzzy matching + union-find for transitive chains. Add fuzzy matching when needed.
+
+### Priority 3: Remaining Providers
 
 Add Groq, Azure OpenAI, and Gemini reranker. The three highest-value providers (OpenAI, Anthropic, Gemini) are done.
 
@@ -773,6 +767,14 @@ Add Groq, Azure OpenAI, and Gemini reranker. The three highest-value providers (
 ### Batch Namespace Operations (done)
 
 Added `saveBulk()`, `getByUuids()`, and `getByGroupIds()` across entity node, episode node, entity edge, and episodic edge namespaces. `getNodesAndEdgesByEpisode()` refactored to use batch `getByUuids()` instead of N individual queries.
+
+### deleteByUuids Operations (done)
+
+Added `deleteByUuids()` across entity nodes, episode nodes, and entity edges for both Neo4j and FalkorDB backends. 6 tests.
+
+### Bulk Ingestion (done)
+
+Added `addEpisodeBulk()` with parallel extraction across all episodes and intra-batch entity name deduplication. Edges are remapped to canonical entity UUIDs after dedup. 2 tests.
 
 ### Core LLM/Embedder Providers (done)
 

@@ -128,6 +128,21 @@ export class Neo4jEntityEdgeOperations implements EntityEdgeOperations {
     }
   }
 
+  async deleteByUuids(driver: GraphDriver, uuids: string[]): Promise<void> {
+    if (uuids.length === 0) return;
+
+    await driver.executeQuery(
+      `
+        MATCH ()-[e:RELATES_TO]->()
+        WHERE e.uuid IN $uuids
+        WITH collect(e) AS edges
+        FOREACH (edge IN edges | DELETE edge)
+        RETURN size(edges) AS deleted_count
+      `,
+      { params: { uuids } }
+    );
+  }
+
   async deleteByGroupId(driver: GraphDriver, groupId: string): Promise<void> {
     validateGroupId(groupId);
 

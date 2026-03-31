@@ -337,3 +337,63 @@ describe('EpisodicEdgeNamespace batch operations', () => {
     expect(result).toHaveLength(0);
   });
 });
+
+describe('EntityNodeNamespace deleteByUuids', () => {
+  test('deleteByUuids issues batch delete query', async () => {
+    const driver = new BatchTestDriver();
+    const ns = new EntityNodeNamespace(driver);
+
+    await ns.deleteByUuids(['n1', 'n2']);
+    const deleteCalls = driver.calls.filter((c) => c.cypherQuery.includes('DETACH DELETE'));
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0]?.options?.params?.uuids).toEqual(['n1', 'n2']);
+  });
+
+  test('deleteByUuids does nothing for empty array', async () => {
+    const driver = new BatchTestDriver();
+    const ns = new EntityNodeNamespace(driver);
+
+    await ns.deleteByUuids([]);
+    expect(driver.calls).toHaveLength(0);
+  });
+});
+
+describe('EpisodeNodeNamespace deleteByUuids', () => {
+  test('deleteByUuids issues batch delete query', async () => {
+    const driver = new BatchTestDriver();
+    const ns = new EpisodeNodeNamespace(driver);
+
+    await ns.deleteByUuids(['e1', 'e2']);
+    const deleteCalls = driver.calls.filter((c) => c.cypherQuery.includes('DETACH DELETE'));
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0]?.options?.params?.uuids).toEqual(['e1', 'e2']);
+  });
+
+  test('deleteByUuids does nothing for empty array', async () => {
+    const driver = new BatchTestDriver();
+    const ns = new EpisodeNodeNamespace(driver);
+
+    await ns.deleteByUuids([]);
+    expect(driver.calls).toHaveLength(0);
+  });
+});
+
+describe('EntityEdgeNamespace deleteByUuids', () => {
+  test('deleteByUuids issues batch delete query', async () => {
+    const driver = new BatchTestDriver();
+    const ns = new EntityEdgeNamespace(driver);
+
+    await ns.deleteByUuids(['edge-1', 'edge-2']);
+    const deleteCalls = driver.calls.filter((c) => c.cypherQuery.includes('DELETE'));
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0]?.options?.params?.uuids).toEqual(['edge-1', 'edge-2']);
+  });
+
+  test('deleteByUuids does nothing for empty array', async () => {
+    const driver = new BatchTestDriver();
+    const ns = new EntityEdgeNamespace(driver);
+
+    await ns.deleteByUuids([]);
+    expect(driver.calls).toHaveLength(0);
+  });
+});

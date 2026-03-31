@@ -7,5 +7,6 @@ export interface EntityEdgeOperations {
   getByUuid(driver: GraphDriver, uuid: string): Promise<EntityEdge>;
   getByUuids(driver: GraphDriver, uuids: string[]): Promise<EntityEdge[]>;
   deleteByUuid(driver: GraphDriver, uuid: string): Promise<void>;
+  deleteByUuids(driver: GraphDriver, uuids: string[]): Promise<void>;
   deleteByGroupId(driver: GraphDriver, groupId: string): Promise<void>;
 }

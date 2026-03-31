@@ -165,6 +165,27 @@ export class EntityEdgeNamespace {
     return result.records.map((record) => mapEntityEdge(record));
   }
 
+  async deleteByUuids(uuids: string[]): Promise<void> {
+    if (uuids.length === 0) return;
+
+    const ops = this.ops ?? resolveEntityEdgeOps(this.driver);
+    if (ops) {
+      await ops.deleteByUuids(this.driver, uuids);
+      return;
+    }
+
+    await this.driver.executeQuery(
+      `
+        MATCH ()-[e:RELATES_TO]->()
+        WHERE e.uuid IN $uuids
+        WITH collect(e) AS edges
+        FOREACH (edge IN edges | DELETE edge)
+        RETURN size(edges) AS deleted_count
+      `,
+      { params: { uuids } }
+    );
+  }
+
   async deleteByGroupId(groupId: string): Promise<void> {
     validateGroupId(groupId);
 
