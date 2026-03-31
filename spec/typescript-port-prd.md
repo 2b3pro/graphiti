@@ -477,7 +477,7 @@ Use this exact clean verification flow:
 
 Current status:
 
-- `232 pass` (from `packages/*/src/` — excludes stale dist artifacts)
+- `263 pass` (from `packages/*/src/` — excludes stale dist artifacts)
 - `21 Neo4j integration tests pass` against live Neo4j 5.26
 - `20 FalkorDB integration tests pass` against live FalkorDB
 - `0 fail`
@@ -587,9 +587,9 @@ These Python `Graphiti` methods have no TS equivalent:
 | Method | Complexity | Notes |
 | --- | --- | --- |
 | ~~`build_communities()`~~ | ~~High~~ | Done — label propagation + LLM summarization |
+| ~~`_extract_and_dedupe_nodes_bulk()`~~ | ~~Low~~ | Done — MinHash fuzzy dedup + union-find |
 | `remove_episode()` | Medium | Python version has cleanup logic (edge invalidation) |
 | `_get_or_create_saga()` | Medium | Saga node lifecycle |
-| `_extract_and_dedupe_nodes_bulk()` | Low | MinHash fuzzy dedup (basic name dedup done) |
 | `_resolve_nodes_and_edges_bulk()` | Low | Edge dedup within batch (basic flow done) |
 
 ### Gap Category 2: Missing Namespace Operations
@@ -761,11 +761,7 @@ find packages -maxdepth 4 -type f -not -path '*/node_modules/*' -not -path '*/di
 
 ## Recommended Next Steps
 
-### Priority 1: Advanced Bulk Deduplication
-
-The current `addEpisodeBulk` uses exact name matching for intra-batch dedup. Python uses MinHash fuzzy matching + union-find for transitive chains. Add fuzzy matching when needed.
-
-### Priority 2: Remaining Providers
+### Priority 1: Remaining Providers
 
 Add Groq, Azure OpenAI, and Gemini reranker. The three highest-value providers (OpenAI, Anthropic, Gemini) are done.
 
@@ -790,6 +786,16 @@ Added community node/edge CRUD operations (Neo4j + FalkorDB), community namespac
 ### Core LLM/Embedder Providers (done)
 
 Added AnthropicClient (claude-sonnet-4-6-latest), GeminiClient (gemini-3-flash-preview), and GeminiEmbedder (text-embedding-004). All implement the existing LLMClient/EmbedderClient interfaces with retry logic, rate limit handling, and tracer integration. 21 unit tests.
+
+### Advanced Bulk Deduplication (done)
+
+Replaced exact-name-only intra-batch dedup in `addEpisodeBulk` with a three-tier pipeline:
+
+1. **Exact match:** Normalized string matching via hashmap (O(1))
+2. **Fuzzy match:** MinHash (32 permutations) + LSH (8 bands of 4) with Jaccard threshold ≥ 0.9 and Shannon entropy filtering for short/low-specificity names
+3. **Chain compression:** Directed union-find with iterative path compression collapses transitive alias chains (a→b→c → all resolve to c)
+
+4 new files, 643 lines, 31 unit tests.
 
 ### Community Building Algorithm (done)
 
