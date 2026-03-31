@@ -14,6 +14,7 @@ export interface EntityEdge extends Edge {
   valid_at?: Date | null;
   invalid_at?: Date | null;
   expired_at?: Date | null;
+  attributes?: Record<string, unknown>;
 }
 
 export interface EpisodicEdge extends Edge {}

@@ -1,3 +1,10 @@
+/**
+ * Generic OpenAI-compatible LLM client — port of Python's openai_generic_client.py.
+ *
+ * Works with any API that follows the OpenAI chat completion spec:
+ * LocalAI, vLLM, LiteLLM, text-generation-inference, etc.
+ */
+
 import OpenAI from 'openai';
 
 import type { GenerateResponseOptions, LLMClient } from '../../contracts';
@@ -7,46 +14,36 @@ import type { LLMConfig } from '../../llm/config';
 import { createLLMConfig } from '../../llm/config';
 import type { Message } from '../../prompts/types';
 import { generateResponse } from '../../llm/generate-response';
-import { EmptyResponseError } from '../errors';
+import { EmptyResponseError, RateLimitError, RefusalError } from '../errors';
 
-const DEFAULT_BASE_URL = 'http://localhost:11434/v1';
-const DEFAULT_MODEL = 'llama3.2';
-const DEFAULT_SMALL_MODEL = 'llama3.2';
+const DEFAULT_MODEL = 'gpt-4.1-mini';
 const MAX_RETRIES = 2;
+const DEFAULT_MAX_TOKENS = 16384;
 
-export interface OllamaClientOptions {
+export interface OpenAIGenericClientOptions {
   config?: Partial<LLMConfig>;
   client?: OpenAI;
+  max_tokens?: number;
 }
 
-/**
- * Ollama LLM client using the OpenAI-compatible API endpoint.
- *
- * Ollama exposes an OpenAI-compatible REST API at /v1, so this client
- * wraps the OpenAI SDK with Ollama-specific defaults (base URL, API key
- * placeholder, higher max_tokens for local models).
- */
-export class OllamaClient implements LLMClient {
+export class OpenAIGenericClient implements LLMClient {
   readonly model: string;
   readonly small_model: string;
   private readonly client: OpenAI;
   private readonly config: LLMConfig;
+  private readonly maxTokens: number;
   private tracer: Tracer;
 
-  constructor(options: OllamaClientOptions = {}) {
-    this.config = createLLMConfig({
-      api_key: 'ollama',
-      base_url: DEFAULT_BASE_URL,
-      max_tokens: 16_384,
-      ...options.config
-    });
+  constructor(options: OpenAIGenericClientOptions = {}) {
+    this.config = createLLMConfig(options.config);
     this.model = this.config.model ?? DEFAULT_MODEL;
-    this.small_model = this.config.small_model ?? DEFAULT_SMALL_MODEL;
+    this.small_model = this.config.small_model ?? this.model;
+    this.maxTokens = options.max_tokens ?? DEFAULT_MAX_TOKENS;
     this.client =
       options.client ??
       new OpenAI({
-        apiKey: this.config.api_key ?? 'ollama',
-        baseURL: this.config.base_url ?? DEFAULT_BASE_URL,
+        apiKey: this.config.api_key ?? 'not-needed',
+        baseURL: this.config.base_url ?? undefined,
         maxRetries: MAX_RETRIES
       });
     this.tracer = new NoOpTracer();
@@ -61,15 +58,10 @@ export class OllamaClient implements LLMClient {
 
     try {
       scope.span.addAttributes({
-        'llm.provider': 'ollama',
+        'llm.provider': 'openai-generic',
         'llm.model': this.model,
-        'llm.max_tokens': this.config.max_tokens
+        'llm.max_tokens': this.maxTokens
       });
-
-      const openaiMessages = messages.map((m) => ({
-        role: m.role as 'system' | 'user' | 'assistant',
-        content: m.content
-      }));
 
       let lastError: unknown = null;
 
@@ -77,30 +69,48 @@ export class OllamaClient implements LLMClient {
         try {
           const response = await this.client.chat.completions.create({
             model: this.model,
-            messages: openaiMessages,
-            temperature: this.config.temperature,
-            max_tokens: this.config.max_tokens,
+            messages: messages.map((m) => ({
+              role: m.role as 'system' | 'user' | 'assistant',
+              content: m.content
+            })),
+            max_tokens: this.maxTokens,
+            temperature: this.config.temperature ?? 0,
             response_format: { type: 'json_object' }
           });
 
           const content = response.choices[0]?.message?.content ?? '';
+
           if (content === '') {
             throw new EmptyResponseError();
+          }
+
+          const refusal = (response.choices[0]?.message as { refusal?: string })?.refusal;
+          if (refusal) {
+            throw new RefusalError(refusal);
           }
 
           scope.span.setStatus('ok');
           return content;
         } catch (error) {
-          if (error instanceof EmptyResponseError) throw error;
+          if (error instanceof OpenAI.RateLimitError) {
+            throw new RateLimitError(error.message);
+          }
+
+          if (error instanceof RefusalError || error instanceof RateLimitError) {
+            throw error;
+          }
+
           lastError = error;
+
+          if (attempt < MAX_RETRIES) {
+            const waitMs = Math.pow(2, attempt) * 1000;
+            await new Promise((resolve) => setTimeout(resolve, waitMs));
+          }
         }
       }
 
-      throw lastError;
-    } catch (error) {
-      scope.span.setStatus('error', String(error));
-      if (error instanceof Error) scope.span.recordException(error);
-      throw error;
+      scope.span.setStatus('error');
+      throw lastError ?? new Error('OpenAI-Generic request failed after retries');
     } finally {
       scope.close();
     }

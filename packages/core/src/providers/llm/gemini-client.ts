@@ -1,12 +1,13 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { GenerativeModel, GenerateContentResult } from '@google/generative-ai';
 
-import type { LLMClient } from '../../contracts';
+import type { GenerateResponseOptions, LLMClient } from '../../contracts';
 import type { Tracer } from '../../tracing';
 import { NoOpTracer } from '../../tracing';
 import type { LLMConfig } from '../../llm/config';
 import { createLLMConfig } from '../../llm/config';
 import type { Message } from '../../prompts/types';
+import { generateResponse } from '../../llm/generate-response';
 import { EmptyResponseError, RateLimitError } from '../errors';
 
 const DEFAULT_MODEL = 'gemini-3-flash-preview';
@@ -114,6 +115,13 @@ export class GeminiClient implements LLMClient {
     } finally {
       scope.close();
     }
+  }
+
+  async generateResponse(
+    messages: Message[],
+    options?: GenerateResponseOptions
+  ): Promise<Record<string, unknown>> {
+    return generateResponse(this, messages, options);
   }
 }
 

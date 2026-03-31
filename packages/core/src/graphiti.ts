@@ -1,9 +1,10 @@
-import { SearchRerankerError } from '@graphiti/shared';
+import { SearchRerankerError, utcNow } from '@graphiti/shared';
 
 import { createCommunityNamespace, type CommunityNamespaceApi } from './namespaces/communities';
 import { createEdgeNamespace, type EdgeNamespaceApi } from './namespaces/edges';
 import { createNodeNamespace, type NodeNamespaceApi } from './namespaces/nodes';
 import { createTracer, NoOpTracer, type Tracer } from './tracing';
+import { TokenUsageTracker } from './llm/token-tracker';
 import type {
   CrossEncoderClient,
   EmbedderClient,
@@ -14,8 +15,10 @@ import type {
 import { OpenAIClient } from './providers/llm/openai-client';
 import { OpenAIEmbedder } from './providers/embedder/openai-embedder';
 import { OpenAIRerankerClient } from './providers/reranker/openai-reranker';
-import type { EntityEdge } from './domain/edges';
-import type { EntityNode, EpisodicNode } from './domain/nodes';
+import type { CommunityEdge, EntityEdge, EpisodicEdge, HasEpisodeEdge, NextEpisodeEdge } from './domain/edges';
+import type { CommunityNode, EntityNode, EpisodicNode, SagaNode } from './domain/nodes';
+import type { EpisodeType } from './domain/nodes';
+import { EpisodeTypes } from './domain/nodes';
 import {
   HeuristicEpisodeExtractor,
   ModelEpisodeExtractor,
@@ -45,6 +48,29 @@ import { EdgeRerankers, NodeRerankers, createSearchConfig } from './search/confi
 import { createSearchFilters, type SearchFilters } from './search/filters';
 import { EDGE_HYBRID_SEARCH_NODE_DISTANCE, EDGE_HYBRID_SEARCH_RRF } from './search/recipes';
 import { search } from './search/search';
+import { semaphoreGather } from './utils/concurrency';
+import { captureEvent } from './telemetry';
+import {
+  extractNodes,
+  resolveExtractedNodes,
+  extractAttributesFromNodes,
+  type EntityTypeDefinition
+} from './maintenance/node-operations';
+import {
+  extractEdges,
+  resolveExtractedEdges,
+  resolveExtractedEdge,
+  buildEpisodicEdges,
+  resolveEdgePointers,
+  type EdgeTypeDefinition
+} from './maintenance/edge-operations';
+import {
+  addNodesAndEdgesBulk,
+  extractNodesAndEdgesBulk,
+  dedupeNodesBulk,
+  dedupeEdgesBulk,
+  type RawEpisode
+} from './maintenance/bulk-utils';
 
 export interface GraphitiOptions {
   driver: GraphDriver;
@@ -54,6 +80,10 @@ export interface GraphitiOptions {
   episode_extractor?: EpisodeExtractor | null;
   node_hydrator?: NodeHydrator | null;
   tracer?: Tracer | null;
+  /** Whether to store raw episode content. Defaults to true. */
+  store_raw_episode_content?: boolean;
+  /** Maximum number of concurrent operations. Defaults to 20. */
+  max_coroutines?: number;
 }
 
 export interface AddTripletInput {
@@ -75,16 +105,36 @@ export interface AddEpisodeInput {
 
 export interface AddEpisodeResult {
   episode: EpisodicNode;
+  episodic_edges: EpisodicEdge[];
   nodes: EntityNode[];
   edges: EntityEdge[];
+  communities: CommunityNode[];
+  community_edges: CommunityEdge[];
+}
+
+export interface AddBulkEpisodeResults {
+  episodes: EpisodicNode[];
+  episodic_edges: EpisodicEdge[];
+  nodes: EntityNode[];
+  edges: EntityEdge[];
+  communities: CommunityNode[];
+  community_edges: CommunityEdge[];
 }
 
 export interface IngestEpisodeInput {
   episode: EpisodicNode;
   previous_episode_count?: number;
+  update_communities?: boolean;
+  extraction_instructions?: string;
 }
 
-export interface IngestEpisodeResult extends AddEpisodeResult {
+export interface IngestEpisodeResult {
+  episode: EpisodicNode;
+  episodic_edges: EpisodicEdge[];
+  nodes: EntityNode[];
+  edges: EntityEdge[];
+  communities: CommunityNode[];
+  community_edges: CommunityEdge[];
   previous_episodes: EpisodicNode[];
   extraction: EpisodeExtractionResult;
 }
@@ -97,6 +147,47 @@ export interface IngestEpisodesResult {
   episodes: IngestEpisodeResult[];
 }
 
+/**
+ * Input for the Python-parity add_episode() method.
+ * This is the primary ingestion API matching Python's full parameter set.
+ */
+export interface AddEpisodeFullInput {
+  name: string;
+  episode_body: string;
+  source_description: string;
+  reference_time: Date;
+  source?: EpisodeType;
+  group_id?: string | null;
+  uuid?: string | null;
+  update_communities?: boolean;
+  entity_types?: Record<string, EntityTypeDefinition> | null;
+  excluded_entity_types?: string[] | null;
+  edge_types?: Record<string, EdgeTypeDefinition> | null;
+  edge_type_map?: Record<string, string[]> | null;
+  custom_extraction_instructions?: string | null;
+  previous_episode_uuids?: string[] | null;
+  saga?: string | SagaNode | null;
+  saga_previous_episode_uuid?: string | null;
+}
+
+/**
+ * Input for the Python-parity add_episode_bulk() method.
+ */
+export interface AddEpisodeBulkInput {
+  bulk_episodes: RawEpisode[];
+  group_id?: string | null;
+  entity_types?: Record<string, EntityTypeDefinition> | null;
+  excluded_entity_types?: string[] | null;
+  edge_types?: Record<string, EdgeTypeDefinition> | null;
+  edge_type_map?: Record<string, string[]> | null;
+  custom_extraction_instructions?: string | null;
+  saga?: string | SagaNode | null;
+}
+
+export { type RawEpisode } from './maintenance/bulk-utils';
+export { type EntityTypeDefinition } from './maintenance/node-operations';
+export { type EdgeTypeDefinition } from './maintenance/edge-operations';
+
 export interface GraphitiSearchOptions {
   group_ids?: string[] | null;
   search_filter?: SearchFilters;
@@ -105,17 +196,20 @@ export interface GraphitiSearchOptions {
 }
 
 export class Graphiti {
-  readonly driver: GraphDriver;
+  driver: GraphDriver;
   readonly llm_client: LLMClient | null;
   readonly embedder: EmbedderClient | null;
   readonly cross_encoder: CrossEncoderClient | null;
   readonly tracer: Tracer;
   readonly episode_extractor: EpisodeExtractor;
   readonly node_hydrator: NodeHydrator;
-  readonly clients: GraphitiClients | null;
+  clients: GraphitiClients | null;
   readonly nodes: NodeNamespaceApi;
   readonly edges: EdgeNamespaceApi;
   readonly communities: CommunityNamespaceApi;
+  readonly tokenTracker: TokenUsageTracker;
+  readonly store_raw_episode_content: boolean;
+  readonly max_coroutines: number | null;
 
   constructor(options: GraphitiOptions) {
     this.driver = options.driver;
@@ -139,6 +233,9 @@ export class Graphiti {
     this.nodes = createNodeNamespace(this.driver, this.embedder);
     this.edges = createEdgeNamespace(this.driver, this.embedder);
     this.communities = createCommunityNamespace(this.driver, this.embedder);
+    this.tokenTracker = new TokenUsageTracker();
+    this.store_raw_episode_content = options.store_raw_episode_content ?? true;
+    this.max_coroutines = options.max_coroutines ?? null;
     this.clients =
       this.llm_client && this.embedder && this.cross_encoder
         ? {
@@ -152,6 +249,36 @@ export class Graphiti {
 
     if (this.llm_client) {
       this.llm_client.setTracer(this.tracer);
+    }
+
+    // Capture initialization telemetry
+    this._captureInitializationTelemetry();
+  }
+
+  private _captureInitializationTelemetry(): void {
+    try {
+      const getProviderType = (client: unknown): string => {
+        if (!client) return 'none';
+        const name = (client as { constructor: { name: string } }).constructor.name.toLowerCase();
+        if (name.includes('openai')) return 'openai';
+        if (name.includes('anthropic')) return 'anthropic';
+        if (name.includes('gemini')) return 'gemini';
+        if (name.includes('groq')) return 'groq';
+        if (name.includes('azure')) return 'azure';
+        if (name.includes('neo4j')) return 'neo4j';
+        if (name.includes('falkor')) return 'falkordb';
+        if (name.includes('voyage')) return 'voyage';
+        return 'unknown';
+      };
+
+      captureEvent('graphiti_initialized', {
+        llm_provider: getProviderType(this.llm_client),
+        embedder_provider: getProviderType(this.embedder),
+        reranker_provider: getProviderType(this.cross_encoder),
+        database_provider: getProviderType(this.driver)
+      });
+    } catch {
+      // Silently handle telemetry errors
     }
   }
 
@@ -186,6 +313,7 @@ export class Graphiti {
     const transaction = await this.driver.transaction();
     const entities = input.entities ?? [];
     const edges = input.entity_edges ?? [];
+    const episodicEdges: EpisodicEdge[] = [];
 
     try {
       for (const entity of entities) {
@@ -199,13 +327,15 @@ export class Graphiti {
       }
 
       for (const entity of entities) {
-        await this.edges.episodic.save({
+        const episodicEdge: EpisodicEdge = {
           uuid: `${input.episode.uuid}:${entity.uuid}`,
           group_id: input.episode.group_id,
           source_node_uuid: input.episode.uuid,
           target_node_uuid: entity.uuid,
           created_at: input.episode.created_at
-        });
+        };
+        await this.edges.episodic.save(episodicEdge);
+        episodicEdges.push(episodicEdge);
       }
 
       await transaction.commit();
@@ -216,8 +346,11 @@ export class Graphiti {
 
     return {
       episode: input.episode,
+      episodic_edges: episodicEdges,
       nodes: entities,
-      edges
+      edges,
+      communities: [],
+      community_edges: []
     };
   }
 
@@ -255,6 +388,13 @@ export class Graphiti {
       entities: hydratedEntities,
       entity_edges: [...resolvedExtraction.entity_edges, ...resolvedExtraction.invalidated_edges]
     });
+
+    // Optionally rebuild communities after ingest
+    if (input.update_communities && this.llm_client) {
+      const communityResult = await this.buildCommunities([input.episode.group_id]);
+      result.communities = communityResult.nodes;
+      result.community_edges = communityResult.edges;
+    }
 
     return {
       ...result,
@@ -407,6 +547,681 @@ export class Graphiti {
     return { episodes: results };
   }
 
+  // =========================================================================
+  // Python-parity add_episode() — full LLM-driven extraction pipeline
+  // =========================================================================
+
+  /**
+   * Process an episode and update the graph. Port of Python's add_episode().
+   * This is the primary ingestion API with full support for custom entity types,
+   * edge types, edge type maps, custom extraction instructions, and sagas.
+   */
+  async addEpisodeFull(input: AddEpisodeFullInput): Promise<AddEpisodeResult> {
+    if (!this.clients) {
+      throw new Error('LLM client, embedder, and cross encoder are all required for addEpisodeFull');
+    }
+
+    const now = utcNow();
+    const groupId = input.group_id ?? this.driver.default_group_id;
+
+    const scope = this.tracer.startSpan('add_episode');
+    try {
+      // Retrieve or create episode
+      let episode: EpisodicNode;
+      if (input.uuid) {
+        episode = await this.nodes.episode.getByUuid(input.uuid);
+      } else {
+        episode = {
+          uuid: crypto.randomUUID(),
+          name: input.name,
+          group_id: groupId,
+          labels: [],
+          source: input.source ?? EpisodeTypes.message,
+          content: input.episode_body,
+          source_description: input.source_description,
+          created_at: now,
+          valid_at: input.reference_time
+        };
+      }
+
+      // Retrieve previous episodes for context
+      const previousEpisodes = input.previous_episode_uuids
+        ? await this.nodes.episode.getByUuids(input.previous_episode_uuids)
+        : await this.retrieveEpisodes([groupId], 10, input.reference_time);
+
+      // Build default edge type map
+      const edgeTypeMap = input.edge_type_map ?? (
+        input.edge_types
+          ? { 'Entity,Entity': Object.keys(input.edge_types) }
+          : { 'Entity,Entity': [] }
+      );
+
+      // Extract nodes
+      const extractedNodes = await extractNodes(
+        this.clients,
+        episode,
+        previousEpisodes,
+        input.entity_types,
+        input.excluded_entity_types,
+        input.custom_extraction_instructions
+      );
+
+      // Resolve nodes against existing graph
+      const [nodes, uuidMap] = await resolveExtractedNodes(
+        this.clients,
+        extractedNodes,
+        episode,
+        previousEpisodes,
+        input.entity_types
+      );
+
+      // Extract edges
+      const extractedEdgesRaw = await extractEdges(
+        this.clients,
+        episode,
+        extractedNodes,
+        previousEpisodes,
+        edgeTypeMap,
+        groupId,
+        input.edge_types,
+        input.custom_extraction_instructions
+      );
+
+      // Resolve edge pointers based on node dedup
+      const extractedEdgesResolved = resolveEdgePointers(extractedEdgesRaw, uuidMap);
+
+      // Resolve edges against existing graph
+      const [resolvedEdges, invalidatedEdges, newEdges] = await resolveExtractedEdges(
+        this.clients,
+        extractedEdgesResolved,
+        episode,
+        nodes,
+        input.edge_types ?? {},
+        edgeTypeMap
+      );
+
+      const entityEdges = [...resolvedEdges, ...invalidatedEdges];
+
+      // Extract node attributes — only pass new edges for summary generation
+      const hydratedNodes = await extractAttributesFromNodes(
+        this.clients,
+        nodes,
+        episode,
+        previousEpisodes,
+        input.entity_types,
+        newEdges
+      );
+
+      // Build episodic edges (MENTIONS)
+      const episodicEdges = buildEpisodicEdges(hydratedNodes, episode.uuid, now);
+      episode.entity_edges = entityEdges.map((e) => e.uuid);
+
+      // Clear raw content if configured
+      if (!this.store_raw_episode_content) {
+        episode.content = '';
+      }
+
+      // Persist everything
+      await addNodesAndEdgesBulk(
+        this.driver,
+        [episode],
+        episodicEdges,
+        hydratedNodes,
+        entityEdges,
+        this.embedder!
+      );
+
+      // Handle saga association
+      if (input.saga) {
+        await this._processEpisodeSaga(
+          episode,
+          now,
+          groupId,
+          input.saga,
+          input.saga_previous_episode_uuid ?? null
+        );
+      }
+
+      // Update communities if requested
+      let communities: CommunityNode[] = [];
+      let communityEdges: CommunityEdge[] = [];
+      if (input.update_communities) {
+        const result = await this.buildCommunities([groupId]);
+        communities = result.nodes;
+        communityEdges = result.edges;
+      }
+
+      scope.span.addAttributes({
+        'episode.uuid': episode.uuid,
+        'node.count': hydratedNodes.length,
+        'edge.count': entityEdges.length,
+        'group_id': groupId
+      });
+      scope.span.setStatus('ok');
+
+      return {
+        episode,
+        episodic_edges: episodicEdges,
+        nodes: hydratedNodes,
+        edges: entityEdges,
+        communities,
+        community_edges: communityEdges
+      };
+    } catch (error) {
+      scope.span.setStatus('error', String(error));
+      if (error instanceof Error) scope.span.recordException(error);
+      throw error;
+    } finally {
+      scope.close();
+    }
+  }
+
+  /**
+   * Process multiple episodes in bulk with cross-episode dedup.
+   * Port of Python's add_episode_bulk().
+   */
+  async addEpisodeBulkFull(input: AddEpisodeBulkInput): Promise<AddBulkEpisodeResults> {
+    if (!this.clients) {
+      throw new Error('LLM client, embedder, and cross encoder are all required');
+    }
+
+    const now = utcNow();
+    const groupId = input.group_id ?? this.driver.default_group_id;
+
+    const scope = this.tracer.startSpan('add_episode_bulk');
+    scope.span.addAttributes({ 'episode.count': input.bulk_episodes.length });
+
+    try {
+      // Build default edge type map
+      const edgeTypeMap = input.edge_type_map ?? (
+        input.edge_types
+          ? { 'Entity,Entity': Object.keys(input.edge_types) }
+          : { 'Entity,Entity': [] }
+      );
+
+      // Create episode nodes
+      const episodes: EpisodicNode[] = input.bulk_episodes.map((ep) => ({
+        uuid: ep.uuid ?? crypto.randomUUID(),
+        name: ep.name,
+        group_id: groupId,
+        labels: [],
+        source: ep.source,
+        content: ep.content,
+        source_description: ep.source_description,
+        created_at: now,
+        valid_at: ep.reference_time
+      }));
+
+      // Save all episodes first
+      await addNodesAndEdgesBulk(this.driver, episodes, [], [], [], this.embedder!);
+
+      // Get previous episode context for each
+      const episodeTuples: Array<[EpisodicNode, EpisodicNode[]]> = await semaphoreGather(
+        episodes.map(
+          (episode) => async () => {
+            const prev = await this.retrieveEpisodes(
+              [groupId],
+              10,
+              episode.valid_at ?? episode.created_at
+            );
+            return [episode, prev] as [EpisodicNode, EpisodicNode[]];
+          }
+        ),
+        this.max_coroutines ?? 10
+      );
+
+      // Extract nodes and edges in parallel
+      const [extractedNodesBulk, extractedEdgesBulk] = await extractNodesAndEdgesBulk(
+        this.clients,
+        episodeTuples,
+        edgeTypeMap,
+        input.entity_types,
+        input.excluded_entity_types,
+        input.edge_types,
+        input.custom_extraction_instructions
+      );
+
+      // Cross-episode node dedup
+      const [nodesByEpisode, nodeUuidMap] = await dedupeNodesBulk(
+        this.clients,
+        extractedNodesBulk,
+        episodeTuples,
+        input.entity_types
+      );
+
+      // Build episodic edges
+      const allEpisodicEdges: EpisodicEdge[] = [];
+      for (const [episodeUuid, nodes] of Object.entries(nodesByEpisode)) {
+        allEpisodicEdges.push(...buildEpisodicEdges(nodes, episodeUuid, now));
+      }
+
+      // Re-map edge pointers and dedupe edges
+      const remappedEdgesBulk = extractedEdgesBulk.map(
+        (edges) => resolveEdgePointers(edges, nodeUuidMap)
+      );
+
+      const edgesByEpisode = await dedupeEdgesBulk(
+        this.clients,
+        remappedEdgesBulk,
+        episodeTuples,
+        input.edge_types ?? {}
+      );
+
+      // Resolve nodes and edges against existing graph
+      const allNodes: EntityNode[] = Object.values(nodesByEpisode).flat();
+      const uniqueNodesByUuid = new Map<string, EntityNode>();
+      for (const node of allNodes) {
+        uniqueNodesByUuid.set(node.uuid, node);
+      }
+      const uniqueNodes = Array.from(uniqueNodesByUuid.values());
+
+      const allEdges: EntityEdge[] = Object.values(edgesByEpisode).flat();
+      const uniqueEdgesByUuid = new Map<string, EntityEdge>();
+      for (const edge of allEdges) {
+        uniqueEdgesByUuid.set(edge.uuid, edge);
+      }
+      const uniqueEdges = Array.from(uniqueEdgesByUuid.values());
+
+      // Extract attributes for all nodes
+      const hydratedNodes = await extractAttributesFromNodes(
+        this.clients,
+        uniqueNodes,
+        null,
+        null,
+        input.entity_types,
+        uniqueEdges
+      );
+
+      // Set entity_edges on episodes
+      for (const episode of episodes) {
+        const edges = edgesByEpisode[episode.uuid] ?? [];
+        episode.entity_edges = edges.map((e) => e.uuid);
+      }
+
+      // Persist
+      await addNodesAndEdgesBulk(
+        this.driver,
+        episodes,
+        allEpisodicEdges,
+        hydratedNodes,
+        uniqueEdges,
+        this.embedder!
+      );
+
+      // Handle saga association
+      if (input.saga) {
+        const sagaNode = typeof input.saga === 'string'
+          ? await this._getOrCreateSaga(input.saga, groupId, now)
+          : input.saga;
+
+        const sortedEpisodes = [...episodes].sort(
+          (a, b) => (a.valid_at?.getTime() ?? 0) - (b.valid_at?.getTime() ?? 0)
+        );
+
+        // Find most recent episode already in the saga
+        const prevResult = await this.driver.executeQuery<{ uuid: string }>(
+          `
+          MATCH (s:Saga {uuid: $saga_uuid})-[:HAS_EPISODE]->(e:Episodic)
+          RETURN e.uuid AS uuid
+          ORDER BY e.valid_at DESC, e.created_at DESC
+          LIMIT 1
+          `,
+          { params: { saga_uuid: sagaNode.uuid }, routing: 'r' }
+        );
+
+        let prevEpisodeUuid = prevResult.records[0]?.uuid ?? null;
+
+        for (const episode of sortedEpisodes) {
+          if (prevEpisodeUuid) {
+            await this._saveNextEpisodeEdge(prevEpisodeUuid, episode.uuid, groupId, now);
+          }
+          await this._saveHasEpisodeEdge(sagaNode.uuid, episode.uuid, groupId, now);
+          prevEpisodeUuid = episode.uuid;
+        }
+      }
+
+      scope.span.addAttributes({
+        'group_id': groupId,
+        'node.count': hydratedNodes.length,
+        'edge.count': uniqueEdges.length
+      });
+      scope.span.setStatus('ok');
+
+      return {
+        episodes,
+        episodic_edges: allEpisodicEdges,
+        nodes: hydratedNodes,
+        edges: uniqueEdges,
+        communities: [],
+        community_edges: []
+      };
+    } catch (error) {
+      scope.span.setStatus('error', String(error));
+      if (error instanceof Error) scope.span.recordException(error);
+      throw error;
+    } finally {
+      scope.close();
+    }
+  }
+
+  // =========================================================================
+  // Saga support — port of Python's _get_or_create_saga()
+  // =========================================================================
+
+  async _getOrCreateSaga(sagaName: string, groupId: string, now: Date): Promise<SagaNode> {
+    const result = await this.driver.executeQuery<{
+      uuid: string;
+      name: string;
+      group_id: string;
+      created_at: string;
+    }>(
+      `
+      MATCH (s:Saga {name: $name, group_id: $group_id})
+      RETURN s.uuid AS uuid, s.name AS name, s.group_id AS group_id, s.created_at AS created_at
+      `,
+      { params: { name: sagaName, group_id: groupId }, routing: 'r' }
+    );
+
+    if (result.records.length > 0) {
+      const record = result.records[0]!;
+      return {
+        uuid: record.uuid,
+        name: record.name,
+        group_id: record.group_id,
+        labels: ['Saga'],
+        created_at: new Date(record.created_at),
+        summary: ''
+      };
+    }
+
+    // Create new saga
+    const saga: SagaNode = {
+      uuid: crypto.randomUUID(),
+      name: sagaName,
+      group_id: groupId,
+      labels: ['Saga'],
+      created_at: now,
+      summary: ''
+    };
+
+    await this.driver.executeQuery(
+      `
+      CREATE (s:Saga {uuid: $uuid, name: $name, group_id: $group_id, created_at: $created_at})
+      RETURN s.uuid AS uuid
+      `,
+      {
+        params: {
+          uuid: saga.uuid,
+          name: saga.name,
+          group_id: saga.group_id,
+          created_at: saga.created_at.toISOString()
+        }
+      }
+    );
+
+    return saga;
+  }
+
+  private async _processEpisodeSaga(
+    episode: EpisodicNode,
+    now: Date,
+    groupId: string,
+    saga: string | SagaNode,
+    sagaPreviousEpisodeUuid: string | null
+  ): Promise<void> {
+    const sagaNode = typeof saga === 'string'
+      ? await this._getOrCreateSaga(saga, groupId, now)
+      : saga;
+
+    let previousEpisodeUuid = sagaPreviousEpisodeUuid;
+    if (!previousEpisodeUuid) {
+      const prevResult = await this.driver.executeQuery<{ uuid: string }>(
+        `
+        MATCH (s:Saga {uuid: $saga_uuid})-[:HAS_EPISODE]->(e:Episodic)
+        WHERE e.uuid <> $current_episode_uuid
+        RETURN e.uuid AS uuid
+        ORDER BY e.valid_at DESC, e.created_at DESC
+        LIMIT 1
+        `,
+        {
+          params: { saga_uuid: sagaNode.uuid, current_episode_uuid: episode.uuid },
+          routing: 'r'
+        }
+      );
+      previousEpisodeUuid = prevResult.records[0]?.uuid ?? null;
+    }
+
+    if (previousEpisodeUuid) {
+      await this._saveNextEpisodeEdge(previousEpisodeUuid, episode.uuid, groupId, now);
+    }
+
+    await this._saveHasEpisodeEdge(sagaNode.uuid, episode.uuid, groupId, now);
+  }
+
+  private async _saveNextEpisodeEdge(
+    sourceUuid: string,
+    targetUuid: string,
+    groupId: string,
+    createdAt: Date
+  ): Promise<void> {
+    await this.driver.executeQuery(
+      `
+      MATCH (source:Episodic {uuid: $source_uuid})
+      MATCH (target:Episodic {uuid: $target_uuid})
+      MERGE (source)-[e:NEXT_EPISODE]->(target)
+      SET e.uuid = $uuid, e.group_id = $group_id, e.created_at = $created_at
+      RETURN e.uuid AS uuid
+      `,
+      {
+        params: {
+          uuid: crypto.randomUUID(),
+          source_uuid: sourceUuid,
+          target_uuid: targetUuid,
+          group_id: groupId,
+          created_at: createdAt.toISOString()
+        }
+      }
+    );
+  }
+
+  private async _saveHasEpisodeEdge(
+    sagaUuid: string,
+    episodeUuid: string,
+    groupId: string,
+    createdAt: Date
+  ): Promise<void> {
+    await this.driver.executeQuery(
+      `
+      MATCH (s:Saga {uuid: $saga_uuid})
+      MATCH (e:Episodic {uuid: $episode_uuid})
+      MERGE (s)-[r:HAS_EPISODE]->(e)
+      SET r.uuid = $uuid, r.group_id = $group_id, r.created_at = $created_at
+      RETURN r.uuid AS uuid
+      `,
+      {
+        params: {
+          uuid: crypto.randomUUID(),
+          saga_uuid: sagaUuid,
+          episode_uuid: episodeUuid,
+          group_id: groupId,
+          created_at: createdAt.toISOString()
+        }
+      }
+    );
+  }
+
+  // =========================================================================
+  // Enhanced addTriplet with resolution — port of Python's add_triplet()
+  // =========================================================================
+
+  /**
+   * Add a triplet with full resolution against the existing graph.
+   * Port of Python's add_triplet() which includes node resolution,
+   * edge dedup, and contradiction detection.
+   */
+  async addTripletFull(input: AddTripletInput): Promise<AddTripletResult> {
+    if (!this.clients || !this.embedder) {
+      throw new Error('LLM client and embedder are required for addTripletFull');
+    }
+
+    // Generate embeddings
+    if (!input.source.name_embedding) {
+      input.source.name_embedding = await this.embedder.create([
+        input.source.name.replaceAll('\n', ' ')
+      ]);
+    }
+    if (!input.target.name_embedding) {
+      input.target.name_embedding = await this.embedder.create([
+        input.target.name.replaceAll('\n', ' ')
+      ]);
+    }
+    if (!input.edge.fact_embedding) {
+      input.edge.fact_embedding = await this.embedder.create([
+        input.edge.fact.replaceAll('\n', ' ')
+      ]);
+    }
+
+    // Resolve source node
+    let resolvedSource: EntityNode;
+    try {
+      resolvedSource = await this.nodes.entity.getByUuid(input.source.uuid);
+    } catch {
+      const [resolvedNodes] = await resolveExtractedNodes(this.clients, [input.source]);
+      resolvedSource = resolvedNodes[0] ?? input.source;
+    }
+
+    // Resolve target node
+    let resolvedTarget: EntityNode;
+    try {
+      resolvedTarget = await this.nodes.entity.getByUuid(input.target.uuid);
+    } catch {
+      const [resolvedNodes] = await resolveExtractedNodes(this.clients, [input.target]);
+      resolvedTarget = resolvedNodes[0] ?? input.target;
+    }
+
+    // Merge attributes from original nodes
+    if (input.source.attributes) {
+      resolvedSource.attributes = { ...(resolvedSource.attributes ?? {}), ...input.source.attributes };
+    }
+    if (input.target.attributes) {
+      resolvedTarget.attributes = { ...(resolvedTarget.attributes ?? {}), ...input.target.attributes };
+    }
+    if (input.source.summary) resolvedSource.summary = input.source.summary;
+    if (input.target.summary) resolvedTarget.summary = input.target.summary;
+    if (input.source.labels?.length) {
+      resolvedSource.labels = [...new Set([...resolvedSource.labels, ...input.source.labels])];
+    }
+    if (input.target.labels?.length) {
+      resolvedTarget.labels = [...new Set([...resolvedTarget.labels, ...input.target.labels])];
+    }
+
+    // Update edge pointers
+    const edge = { ...input.edge };
+    edge.source_node_uuid = resolvedSource.uuid;
+    edge.target_node_uuid = resolvedTarget.uuid;
+
+    // Check for existing edge UUID collision
+    try {
+      const existingEdge = await this.edges.entity.getByUuid(edge.uuid);
+      if (
+        existingEdge.source_node_uuid !== edge.source_node_uuid ||
+        existingEdge.target_node_uuid !== edge.target_node_uuid
+      ) {
+        edge.uuid = crypto.randomUUID();
+      }
+    } catch {
+      // Edge doesn't exist — proceed normally
+    }
+
+    // Search for related edges for dedup
+    const validEdges = await this._getEdgesBetweenNodes(
+      edge.source_node_uuid,
+      edge.target_node_uuid
+    );
+
+    const relatedResults = await search(
+      this.driver,
+      edge.fact,
+      [edge.group_id],
+      EDGE_HYBRID_SEARCH_RRF,
+      createSearchFilters({ edge_uuids: validEdges.map((e) => e.uuid) }),
+      {},
+      this.cross_encoder
+    );
+
+    const existingResults = await search(
+      this.driver,
+      edge.fact,
+      [edge.group_id],
+      EDGE_HYBRID_SEARCH_RRF,
+      createSearchFilters(),
+      {},
+      this.cross_encoder
+    );
+
+    // Resolve edge
+    const dummyEpisode: EpisodicNode = {
+      uuid: crypto.randomUUID(),
+      name: '',
+      group_id: edge.group_id,
+      labels: [],
+      source: EpisodeTypes.text,
+      source_description: '',
+      content: '',
+      created_at: utcNow(),
+      valid_at: edge.valid_at ?? utcNow(),
+      entity_edges: []
+    };
+
+    const [resolvedEdge, invalidatedEdges] = await resolveExtractedEdge(
+      this.clients.llm_client,
+      edge,
+      relatedResults.edges,
+      existingResults.edges,
+      dummyEpisode
+    );
+
+    const allEdges = [resolvedEdge, ...invalidatedEdges];
+    const allNodes = [resolvedSource, resolvedTarget];
+
+    // Save
+    await addNodesAndEdgesBulk(this.driver, [], [], allNodes, allEdges, this.embedder);
+
+    return {
+      nodes: [resolvedSource, resolvedTarget],
+      edges: [resolvedEdge]
+    };
+  }
+
+  private async _getEdgesBetweenNodes(
+    sourceUuid: string,
+    targetUuid: string
+  ): Promise<EntityEdge[]> {
+    const result = await this.driver.executeQuery<Record<string, unknown>>(
+      `
+      MATCH (source:Entity {uuid: $source_uuid})-[e:RELATES_TO]->(target:Entity {uuid: $target_uuid})
+      RETURN e.uuid AS uuid, e.group_id AS group_id, source.uuid AS source_node_uuid,
+             target.uuid AS target_node_uuid, e.created_at AS created_at,
+             e.name AS name, e.fact AS fact, e.episodes AS episodes,
+             e.valid_at AS valid_at, e.invalid_at AS invalid_at
+      `,
+      { params: { source_uuid: sourceUuid, target_uuid: targetUuid }, routing: 'r' }
+    );
+
+    return result.records.map((r) => ({
+      uuid: r.uuid as string,
+      group_id: (r.group_id as string) ?? '',
+      source_node_uuid: r.source_node_uuid as string,
+      target_node_uuid: r.target_node_uuid as string,
+      created_at: new Date(r.created_at as string),
+      name: (r.name as string) ?? '',
+      fact: (r.fact as string) ?? '',
+      episodes: (r.episodes as string[]) ?? [],
+      valid_at: r.valid_at ? new Date(r.valid_at as string) : null,
+      invalid_at: r.invalid_at ? new Date(r.invalid_at as string) : null
+    }));
+  }
+
   async retrieveEpisodes(
     groupIds: string[],
     lastN = 10,
@@ -421,6 +1236,63 @@ export class Graphiti {
 
   async deleteEpisode(uuid: string): Promise<void> {
     await this.nodes.episode.deleteByUuid(uuid);
+  }
+
+  /**
+   * Remove an episode with full cleanup — deletes orphaned edges and nodes.
+   * Port of Python's `remove_episode()` method.
+   *
+   * 1. Finds entity edges created by this episode (where it's the first episode in the list)
+   * 2. Finds entity nodes only mentioned by this episode
+   * 3. Deletes orphaned edges and nodes
+   * 4. Deletes the episode itself
+   */
+  async removeEpisode(episodeUuid: string): Promise<void> {
+    // Load the episode to find its edges
+    const episode = await this.nodes.episode.getByUuid(episodeUuid);
+    const entityEdgeUuids = episode.entity_edges ?? [];
+
+    // Load edges mentioned by the episode
+    const edges = await this.edges.entity.getByUuids(entityEdgeUuids);
+
+    // Only delete edges where this episode is the first (creating) episode
+    const edgesToDelete = edges.filter(
+      (edge) => edge.episodes && edge.episodes[0] === episode.uuid
+    );
+
+    // Find nodes mentioned only by this episode via MENTIONS edges
+    const mentionedNodeResult = await this.driver.executeQuery<{ uuid: string; episode_count: number }>(
+      `
+        MATCH (ep:Episodic {uuid: $episode_uuid})-[:MENTIONS]->(n:Entity)
+        WITH n
+        MATCH (e2:Episodic)-[:MENTIONS]->(n)
+        WITH n, count(e2) AS episode_count
+        RETURN n.uuid AS uuid, episode_count
+      `,
+      { params: { episode_uuid: episodeUuid }, routing: 'r' }
+    );
+
+    const nodesToDelete = mentionedNodeResult.records
+      .filter((record) => {
+        const count = typeof record.episode_count === 'object' && record.episode_count !== null && 'low' in record.episode_count
+          ? (record.episode_count as { low: number }).low
+          : record.episode_count;
+        return count === 1;
+      })
+      .map((record) => record.uuid);
+
+    // Delete orphaned edges
+    if (edgesToDelete.length > 0) {
+      await this.edges.entity.deleteByUuids(edgesToDelete.map((e) => e.uuid));
+    }
+
+    // Delete orphaned nodes
+    if (nodesToDelete.length > 0) {
+      await this.nodes.entity.deleteByUuids(nodesToDelete);
+    }
+
+    // Delete the episode itself (cascades MENTIONS edges via DETACH DELETE)
+    await this.nodes.episode.deleteByUuid(episodeUuid);
   }
 
   async deleteGroup(groupId: string): Promise<void> {
@@ -515,6 +1387,19 @@ export class Graphiti {
         edge.fact_embedding = await this.embedder.create([edge.fact.replaceAll('\n', ' ')]);
       }
     }
+  }
+
+  /**
+   * Advanced search returning full SearchResults with nodes, edges, communities, and episodes.
+   * This is the TypeScript equivalent of Python's `search_()` method.
+   * Alias for `search()` with the same signature.
+   */
+  async advancedSearch(
+    query: string,
+    config: SearchConfig,
+    options: GraphitiSearchOptions = {}
+  ): Promise<SearchResults> {
+    return this.search(query, config, options);
   }
 
   async searchEdges(
